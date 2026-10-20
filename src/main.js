@@ -55,7 +55,8 @@ const SCAN_DELAY_MS = 50;
  * @param {...unknown} args 出す値
  */
 function debugLog(...args) {
-  if (DEBUG) console.debug('[youtube-comment-filter]', ...args);
+  // console.debug は Chrome の既定の表示レベル（詳細を除く）では出ないので、console.log で出す
+  if (DEBUG) console.log('[youtube-comment-filter]', ...args);
 }
 
 /**
