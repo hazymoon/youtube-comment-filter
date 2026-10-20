@@ -139,7 +139,7 @@ const AI_CACHE_MAX_ENTRIES = 5000;
  * 1 行に収まる短いコメントでも全文が見えないようにするため。ホバーで 4 行、クリックで全文になる。
  * @type {number}
  */
-const PREVIEW_CHARS = 10;
+const PREVIEW_CHARS = 25;
 
 /**
  * true にすると、判定の経過を DevTools の console に出す。
