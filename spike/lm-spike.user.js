@@ -13,7 +13,7 @@
 // ==UserScript==
 // @name        YCF LM Spike (default inject)
 // @namespace   https://github.com/hazymoon/youtube-comment-filter/spike
-// @version     0.2.0
+// @version     0.3.0
 // @description Prompt API と YouTube コメント DOM の計測 spike（既定の注入方式）
 // @match       https://www.youtube.com/*
 // @grant       GM_info
@@ -298,6 +298,112 @@
     console.log('[YCF LM Spike hideTest JSON]\n' + json);
     pre.textContent = json;
     status.textContent = '隠し方 ' + hideTest.mode + ' の結果（「JSON をコピー」で取れます）';
+  });
+
+  // ---------- 骨格ダンプ ----------
+  // 工程 2 のセレクタを決めるため、コメント欄の要素構造（タグ名・id・class・属性の形式）だけを出す。
+  // テキストは長さだけ、href はパスの形式とクエリのキー名だけ、aria-label / title は長さだけを記録する。
+
+  const SKELETON_NODE_LIMIT = 4000;
+  const SKELETON_ATTRS = ['role', 'hidden', 'collapsed', 'is-empty', 'slot', 'is-dismissed', 'expanded', 'disabled', 'tabindex'];
+
+  const hrefForm = (href) => {
+    if (typeof href !== 'string') return href;
+    try {
+      const u = new URL(href, location.origin);
+      let path = u.pathname
+        .replace(/^\/@[^/]+/, '/@***')
+        .replace(/^\/channel\/UC[^/]+/, '/channel/UC***')
+        .replace(/^\/shorts\/[^/]+/, '/shorts/***');
+      const keys = [...u.searchParams.keys()];
+      return (u.origin === location.origin ? '' : u.origin) + path + (keys.length ? '?' + keys.join('&') : '') + (u.hash ? '#…' : '');
+    } catch (e) {
+      return 'unparsable';
+    }
+  };
+
+  const styleHints = (el) => {
+    const cs = getComputedStyle(el);
+    const out = {};
+    for (const p of ['display', 'visibility', 'overflow', 'max-height', '-webkit-line-clamp', 'line-height', 'white-space']) {
+      const v = cs.getPropertyValue(p);
+      if (v && v !== 'none' && v !== 'normal' && v !== 'visible' && v !== 'auto') out[p] = v;
+    }
+    return out;
+  };
+
+  function skeleton(root, maxDepth) {
+    let count = 0;
+    const walk = (node, depth) => {
+      if (count >= SKELETON_NODE_LIMIT) return { truncated: true };
+      count++;
+      if (node.nodeType === Node.TEXT_NODE) {
+        const len = node.textContent.trim().length;
+        return len ? { text: len } : null;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return null;
+      const el = node;
+      const o = { t: el.tagName.toLowerCase() };
+      if (el.id) o.id = el.id;
+      if (el.classList.length) o.cls = [...el.classList].slice(0, 6).join(' ');
+      for (const a of SKELETON_ATTRS) if (el.hasAttribute(a)) (o.attrs ||= {})[a] = el.getAttribute(a) || '';
+      if (el.hasAttribute('href')) o.href = hrefForm(el.getAttribute('href'));
+      for (const a of ['aria-label', 'title']) if (el.hasAttribute(a)) (o.attrs ||= {})[a] = 'len=' + el.getAttribute(a).length;
+      if (el.id === 'content-text' || /expander|truncat|more|less|content/i.test(el.id + ' ' + el.className)) o.style = styleHints(el);
+      if (getComputedStyle(el).display === 'none') o.hiddenByCss = true;
+      if (depth >= maxDepth) {
+        if (el.childElementCount) o.children = '…' + el.childElementCount;
+        return o;
+      }
+      const kids = [...el.childNodes].map((c) => walk(c, depth + 1)).filter(Boolean);
+      if (kids.length) o.children = kids;
+      return o;
+    };
+    const tree = walk(root, 0);
+    return { nodes: count, truncated: count >= SKELETON_NODE_LIMIT, tree };
+  }
+
+  const startsWithMention = (vm) => {
+    const body = vm.querySelector('#content-text');
+    return !!body && body.textContent.trim().startsWith('@');
+  };
+
+  function dumpSkeleton() {
+    const comments = document.querySelector('ytd-comments#comments');
+    if (!comments) return { error: 'ytd-comments#comments が無い' };
+    const threads = [...comments.querySelectorAll('ytd-comment-thread-renderer')];
+    const replyCount = (t) => t.querySelectorAll('ytd-comment-replies-renderer ytd-comment-view-model').length;
+    // 返信を展開済みで @ 返信を含むスレッドを優先し、無ければ返信を展開済みのもの
+    const withMentionReply = threads.find((t) => [...t.querySelectorAll('ytd-comment-replies-renderer ytd-comment-view-model')].some(startsWithMention));
+    const withReplies = withMentionReply || threads.find((t) => replyCount(t) > 0);
+    const withRepliesButton = threads.find((t) => t.querySelector('ytd-comment-replies-renderer') && replyCount(t) === 0);
+    const longest = threads
+      .map((t) => ({ t, len: (t.querySelector('#content-text')?.textContent || '').length }))
+      .sort((a, b) => b.len - a.len)[0];
+    return {
+      threadCount: threads.length,
+      commentsTop: skeleton(comments, 5),
+      threadWithReplies: withReplies
+        ? { hasMentionReply: !!withMentionReply, replies: replyCount(withReplies), skeleton: skeleton(withReplies, 40) }
+        : '返信を展開したスレッドが無い',
+      threadWithCollapsedReplies: withRepliesButton ? skeleton(withRepliesButton, 40) : '返信が未展開のスレッドが無い',
+      longestThread: longest && longest.t !== withReplies ? { textLen: longest.len, skeleton: skeleton(longest.t, 40) } : '（返信付きスレッドと同じ）',
+    };
+  }
+
+  const skeletonBtn = document.createElement('button');
+  skeletonBtn.textContent = '骨格を出す';
+  skeletonBtn.style.marginLeft = '6px';
+  buttons.append(skeletonBtn);
+  skeletonBtn.addEventListener('click', () => {
+    try {
+      const json = JSON.stringify({ skeleton: dumpSkeleton() });
+      console.log('[YCF LM Spike skeleton JSON]\n' + json);
+      pre.textContent = json;
+      setStatus('骨格を出しました（' + json.length + ' 文字。「JSON をコピー」で取れます）');
+    } catch (e) {
+      setStatus('骨格の取得に失敗: ' + errInfo(e).name + ' ' + errInfo(e).message);
+    }
   });
 
   copyBtn.addEventListener('click', async () => {
