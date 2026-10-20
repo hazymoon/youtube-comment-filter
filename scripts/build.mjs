@@ -48,6 +48,7 @@ export const MODULE_ORDER = [
   'ui.js',
   'lm.js',
   'scanner.js',
+  'navigation.js',
   'main.js',
 ];
 
