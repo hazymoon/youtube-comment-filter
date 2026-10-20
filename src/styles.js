@@ -2,6 +2,7 @@
  * @file 本スクリプトの CSS。
  */
 
+import { PREVIEW_CHARS } from './config.js';
 import {
   BAR_ID,
   COMMENT_CONTAINER_ID,
@@ -136,21 +137,25 @@ ${hiddenThread} {
   display: none !important;
 }
 
-/* 表示: 段階表示（既定 1 行、ホバーで 4 行、クリックで全文） */
+/* 表示: 段階表示（既定は文頭の PREVIEW_CHARS 文字ほど、ホバーで 4 行、クリックで全文）。
+   1 行に収まる短いコメントでも全文が見えないよう、既定では行数に加えて幅も制限する */
 ${shownContent} {
   display: -webkit-box !important;
   -webkit-box-orient: vertical !important;
   overflow: hidden !important;
   max-height: none !important;
+  max-width: ${PREVIEW_CHARS}em !important;
   -webkit-line-clamp: 1 !important;
   cursor: pointer;
 }
 ${hoverContent} {
+  max-width: none !important;
   -webkit-line-clamp: 4 !important;
 }
 ${expandedContent} {
   display: block !important;
   overflow: visible !important;
+  max-width: none !important;
   -webkit-line-clamp: unset !important;
 }
 ${shownButtons} {

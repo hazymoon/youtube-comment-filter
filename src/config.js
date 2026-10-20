@@ -117,6 +117,13 @@ export const AI_MAX_CHARS = 500;
 export const AI_CACHE_MAX_ENTRIES = 5000;
 
 /**
+ * 表示するコメントで、既定で見せる文頭の文字数（全角文字の幅で数える目安）。
+ * 1 行に収まる短いコメントでも全文が見えないようにするため。ホバーで 4 行、クリックで全文になる。
+ * @type {number}
+ */
+export const PREVIEW_CHARS = 10;
+
+/**
  * true にすると、判定の経過を DevTools の console に出す。
  * @type {boolean}
  */

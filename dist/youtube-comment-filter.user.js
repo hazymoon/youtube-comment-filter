@@ -135,6 +135,13 @@ const AI_MAX_CHARS = 500;
 const AI_CACHE_MAX_ENTRIES = 5000;
 
 /**
+ * 表示するコメントで、既定で見せる文頭の文字数（全角文字の幅で数える目安）。
+ * 1 行に収まる短いコメントでも全文が見えないようにするため。ホバーで 4 行、クリックで全文になる。
+ * @type {number}
+ */
+const PREVIEW_CHARS = 10;
+
+/**
  * true にすると、判定の経過を DevTools の console に出す。
  * @type {boolean}
  */
@@ -1636,21 +1643,25 @@ ${hiddenThread} {
   display: none !important;
 }
 
-/* 表示: 段階表示（既定 1 行、ホバーで 4 行、クリックで全文） */
+/* 表示: 段階表示（既定は文頭の PREVIEW_CHARS 文字ほど、ホバーで 4 行、クリックで全文）。
+   1 行に収まる短いコメントでも全文が見えないよう、既定では行数に加えて幅も制限する */
 ${shownContent} {
   display: -webkit-box !important;
   -webkit-box-orient: vertical !important;
   overflow: hidden !important;
   max-height: none !important;
+  max-width: ${PREVIEW_CHARS}em !important;
   -webkit-line-clamp: 1 !important;
   cursor: pointer;
 }
 ${hoverContent} {
+  max-width: none !important;
   -webkit-line-clamp: 4 !important;
 }
 ${expandedContent} {
   display: block !important;
   overflow: visible !important;
+  max-width: none !important;
   -webkit-line-clamp: unset !important;
 }
 ${shownButtons} {
