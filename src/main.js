@@ -19,6 +19,7 @@ import { buildCountText, buildStatusText } from './decide.js';
 import { directChildById } from './dom.js';
 import { createLanguageModelController } from './lm.js';
 import { createNavigationState } from './navigation.js';
+import { NG_USERS_VALUE_KEY, NG_WORDS_VALUE_KEY, parseStoredSettings } from './settings.js';
 import { createAiQueue } from './queue.js';
 import { compileRules } from './rules.js';
 import { createThreadProcessor } from './scanner.js';
@@ -87,6 +88,21 @@ function createGmStorage() {
 }
 
 /**
+ * 「値」タブの NG ユーザ・NG ワードを読む。まだ無い値は空の配列で作り、「値」タブに名前が出るようにする
+ * （利用者が値の名前を覚えていなくても書き込めるようにするため）。GM_* が使えない環境では空にする。
+ * @returns {ReturnType<typeof parseStoredSettings>}
+ */
+function readStoredSettings() {
+  if (typeof GM_getValue !== 'function') return parseStoredSettings({ ngUsers: undefined, ngWords: undefined });
+  const read = (key) => {
+    const value = GM_getValue(key);
+    if (value === undefined && typeof GM_setValue === 'function') GM_setValue(key, []);
+    return value;
+  };
+  return parseStoredSettings({ ngUsers: read(NG_USERS_VALUE_KEY), ngWords: read(NG_WORDS_VALUE_KEY) });
+}
+
+/**
  * ユーザスクリプトの起動処理。ビルドが IIFE の最後でこの関数を呼ぶ。
  */
 export function main() {
@@ -95,7 +111,9 @@ export function main() {
   updateWatchAttr();
   const navigation = createNavigationState(location.href);
 
-  const rules = compileRules({ ngUsers: NG_USERS, ngWords: NG_WORDS });
+  const stored = readStoredSettings();
+  for (const warning of stored.warnings) console.warn('[youtube-comment-filter]', warning);
+  const rules = compileRules({ ngUsers: [...NG_USERS, ...stored.ngUsers], ngWords: [...NG_WORDS, ...stored.ngWords] });
   for (const warning of rules.warnings) console.warn('[youtube-comment-filter]', warning);
 
   const cache = createAiCache({
