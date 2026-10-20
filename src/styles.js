@@ -2,7 +2,7 @@
  * @file 本スクリプトの CSS。
  */
 
-import { PREVIEW_CHARS } from './config.js';
+import { PREVIEW_CHARS, REVEAL_DELAY_MS, REVEAL_MS_PER_LINE } from './config.js';
 import {
   BAR_ID,
   COMMENT_CONTAINER_ID,
@@ -21,6 +21,12 @@ import {
   WATCH_COMMENTS_SELECTOR,
   COMMENTS_SELECTOR,
 } from './selectors.js';
+
+/** ホバーで見せる行数 */
+const HOVER_LINES = 4;
+
+/** 表示するコメントの本文の行の高さ（rem）。ホバーで行ごとに見せるマスクの帯の高さと揃えるため、明示する */
+const LINE_HEIGHT_REM = 2;
 
 /**
  * 対象のコメント欄を指すセレクタの組み立て方。html 要素への条件（開閉）を足せる形で返す。
@@ -83,6 +89,14 @@ export function buildStyles() {
     const container = `${thread}[${STATE_ATTR}="shown"][${EXPANDED_ATTR}] > #${COMMENT_CONTAINER_ID}`;
     return [contentOf(container), hoverOf(container)];
   });
+  // ホバーで見せる行のマスク。--ycf-reveal が 0 から HOVER_LINES まで増えるにつれ、i 行目は i から i+1 の間で
+  // 左から右へ見えていく（読む順）。1 行目は既定の表示で見えている文頭の幅から始める
+  const revealMasks = Array.from({ length: HOVER_LINES }, (_, line) => {
+    const progress = `clamp(0, var(--ycf-reveal) - ${line}, 1) * 100%`;
+    const stop = line === 0 ? `max(${PREVIEW_CHARS}em, calc(${progress}))` : `calc(${progress})`;
+    return `linear-gradient(to right, #000 ${stop}, transparent ${stop})`;
+  }).join(', ');
+  const revealPositions = Array.from({ length: HOVER_LINES }, (_, line) => (line === 0 ? '0 0' : `0 ${line * LINE_HEIGHT_REM}rem`)).join(', ');
   const shownButtons = forEachScope((thread) =>
     [MORE_BUTTON_SELECTOR, LESS_BUTTON_SELECTOR].map(
       (button) => `${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID} ${EXPANDER_SELECTOR} > ${button}`,
@@ -137,26 +151,49 @@ ${hiddenThread} {
   display: none !important;
 }
 
+/* ホバーで見せる量。数値として登録し、transition で増やせるようにする */
+@property --ycf-reveal {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
 /* 表示: 段階表示（既定は文頭の PREVIEW_CHARS 文字ほど、ホバーで 4 行、クリックで全文）。
-   1 行に収まる短いコメントでも全文が見えないよう、既定では行数に加えて幅も制限する */
+   1 行に収まる短いコメントでも全文が見えないよう、既定では行数に加えて幅も制限する。
+   見せる量の transition はホバーの規則にだけ書く（マウスを外したら待たずに文頭だけに戻すため） */
 ${shownContent} {
   display: -webkit-box !important;
   -webkit-box-orient: vertical !important;
   overflow: hidden !important;
   max-height: none !important;
   max-width: ${PREVIEW_CHARS}em !important;
+  line-height: ${LINE_HEIGHT_REM}rem !important;
   -webkit-line-clamp: 1 !important;
   cursor: pointer;
 }
+/* ホバー: 待ち時間の後、1 行ずつ左から右へ見せる。行の高さをマスクの帯の高さと揃える */
 ${hoverContent} {
   max-width: none !important;
-  -webkit-line-clamp: 4 !important;
+  -webkit-line-clamp: ${HOVER_LINES} !important;
+  line-height: ${LINE_HEIGHT_REM}rem !important;
+  --ycf-reveal: ${HOVER_LINES};
+  transition: --ycf-reveal ${HOVER_LINES * REVEAL_MS_PER_LINE}ms linear ${REVEAL_DELAY_MS}ms;
+  -webkit-mask-image: ${revealMasks};
+  mask-image: ${revealMasks};
+  -webkit-mask-size: 100% ${LINE_HEIGHT_REM}rem;
+  mask-size: 100% ${LINE_HEIGHT_REM}rem;
+  -webkit-mask-position: ${revealPositions};
+  mask-position: ${revealPositions};
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
 ${expandedContent} {
   display: block !important;
   overflow: visible !important;
   max-width: none !important;
   -webkit-line-clamp: unset !important;
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 ${shownButtons} {
   display: none !important;

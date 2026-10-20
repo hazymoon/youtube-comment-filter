@@ -124,6 +124,20 @@ export const AI_CACHE_MAX_ENTRIES = 5000;
 export const PREVIEW_CHARS = 25;
 
 /**
+ * マウスを乗せてから、続きを見せ始めるまでの待ち時間（ミリ秒）。
+ * スクロール中にマウスが通り過ぎただけで見え始めないようにするため。
+ * @type {number}
+ */
+export const REVEAL_DELAY_MS = 300;
+
+/**
+ * マウスを乗せたとき、続きを 1 行ぶん左から右へ見せるのにかける時間（ミリ秒）。4 行ぶんを読む順に見せる。
+ * 不快だと判断した時点でマウスを外せば、残りは見えずに文頭だけの表示に戻る。
+ * @type {number}
+ */
+export const REVEAL_MS_PER_LINE = 700;
+
+/**
  * true にすると、判定の経過を DevTools の console に出す。
  * @type {boolean}
  */
