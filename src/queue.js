@@ -34,7 +34,11 @@ function isTimeoutAbort(signal) {
  *
  * - 応答から欠けたコメントは 1 件ずつのバッチで 1 回だけ再判定し、それでも欠けたら onPending。
  *   再判定がタイムアウトして入れ直されたコメントが再び欠けたときも、再判定は重ねず onPending にする
- * - タイムアウトしたバッチは全件を onPending にし、各コメント 1 回だけ行列の末尾に入れ直す
+ * - タイムアウトしたバッチは全件を onPending にし、各コメント 1 回だけ行列の末尾に入れ直す。
+ *   判定が出たコメントは再試行の回数を消すので、後で再び enqueue されたときはまた 1 回入れ直せる
+ * - 2 件以上のバッチで hide:true になったコメントは、欠落の再判定の後に 1 件だけのバッチで判定し直し、その結果を流す。
+ *   再判定がタイムアウトしたらタイムアウトと同じく扱い、応答から欠けたら onPending にする
+ * - タイムアウトは clone できてから数える（基底セッションの準備を待つ時間は含めない）
  * - タイムアウト以外の例外は onFatal を呼び、以降の enqueue を無視する（呼び出し側はルールだけの判定に切り替える）。
  *   reset しても戻らない
  * - reset 前に始まった判定の結果は onVerdict / onPending に流さない。コールバックの中で reset されたときも、
@@ -87,15 +91,18 @@ export function createAiQueue({
 
   /**
    * 1 バッチ分の prompt を実行する。セッションは必ず destroy する。
+   * タイムアウトは clone できてから数え始める。基底セッションの準備（モデルの読み込みやダウンロード、
+   * ユーザー操作の待ち）は推論の時間ではないので、上限に含めない。
    * @param {string} input 入力文
-   * @param {AbortSignal} timeoutSignal タイムアウト用シグナル
+   * @param {{ signal: AbortSignal|null }} timeout 作ったタイムアウト用シグナルを入れて返す
    * @param {AbortSignal} resetSignal reset 用シグナル
    * @returns {Promise<string>}
    */
-  async function runPrompt(input, timeoutSignal, resetSignal) {
-    const signal = AbortSignal.any([timeoutSignal, resetSignal]);
+  async function runPrompt(input, timeout, resetSignal) {
     const session = await cloneSession();
     try {
+      timeout.signal = createTimeoutSignal(timeoutMs);
+      const signal = AbortSignal.any([timeout.signal, resetSignal]);
       signal.throwIfAborted();
       return await session.prompt(input, {
         responseConstraint: responseSchema,
@@ -165,13 +172,14 @@ export function createAiQueue({
   async function processBatch(batch, batchGeneration, isMissingRetry) {
     const { input, idMap } = buildBatchInput(batch, maxChars);
     const itemsById = new Map(batch.map((item) => [item.id, item]));
-    const timeoutSignal = createTimeoutSignal(timeoutMs);
+    /** @type {{ signal: AbortSignal|null }} */
+    const timeout = { signal: null };
     let responseText;
     try {
-      responseText = await runPrompt(input, timeoutSignal, resetController.signal);
+      responseText = await runPrompt(input, timeout, resetController.signal);
     } catch (error) {
       if (!isCurrent(batchGeneration)) return;
-      if (isTimeoutAbort(timeoutSignal)) {
+      if (timeout.signal !== null && isTimeoutAbort(timeout.signal)) {
         handleTimeout(batch, batchGeneration);
         return;
       }
@@ -181,10 +189,23 @@ export function createAiQueue({
     if (!isCurrent(batchGeneration)) return;
 
     const { verdicts, missing } = parseBatchResponse(responseText, idMap, categoryNames);
+    /** @type {{ id: string, text: string }[]} */
+    const toConfirm = [];
     for (const [id, verdict] of verdicts) {
       if (!isCurrent(batchGeneration)) return;
+      const item = /** @type {{ id: string, text: string }} */ (itemsById.get(id));
+      // 本文に埋めた指示で同じバッチの他のコメントを隠させられるため、まとめた判定の hide:true は
+      // そのまま流さず、1 件だけのバッチで判定し直す。hide:false は判定し直さずに流すので、
+      // 同じバッチの他のコメントの指示で表示にされる経路は残る（防げるのは AI_BATCH_SIZE が 1 のときだけ）
+      if (batch.length > 1 && verdict.hide) {
+        toConfirm.push(item);
+        continue;
+      }
       inFlightIds.delete(id);
-      onVerdict(id, verdict, /** @type {{ id: string, text: string }} */ (itemsById.get(id)));
+      // 判定が出たら再試行の回数を消す。後で再び順番待ちに入ったとき（本文の再表示など）、改めて 1 回入れ直せるようにする
+      timeoutRetries.delete(id);
+      missingRetried.delete(id);
+      onVerdict(id, verdict, item);
     }
 
     for (const id of missing) {
@@ -196,6 +217,12 @@ export function createAiQueue({
         continue;
       }
       missingRetried.add(id);
+      await processBatch([item], batchGeneration, true);
+    }
+
+    for (const item of toConfirm) {
+      if (!isCurrent(batchGeneration)) return;
+      // 再判定の応答から欠けたら、欠落の再判定は重ねずに判定待ちにする
       await processBatch([item], batchGeneration, true);
     }
   }

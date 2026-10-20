@@ -15,14 +15,20 @@ export function toNfkc(text) {
 // U+30FC (ー, prolonged sound mark) is intentionally excluded.
 const KATAKANA_TO_HIRAGANA_PATTERN = /[ァ-ヶヽヾ]/g;
 
-// Punctuation, symbols (incl. most emoji), and whitespace.
-// ZWJ, variation selectors, the keycap mark, and tag characters (U+E0001, U+E0020..U+E007F, used by
-// subdivision flags) are not \p{P}/\p{S} but only make up emoji sequences.
-const MATCH_NOISE_PATTERN = /[\p{P}\p{S}\s\u200D\uFE0E\uFE0F\u20E3\u{E0001}\u{E0020}-\u{E007F}]/gu;
+// Punctuation, symbols (incl. most emoji), whitespace, and format characters (\p{Cf}: zero-width
+// space/joiner, soft hyphen, word joiner, tag characters used by subdivision flags, ...).
+// Variation selectors and the keycap mark are not \p{P}/\p{S}/\p{Cf} but only make up emoji sequences.
+const MATCH_NOISE_PATTERN = /[\p{P}\p{S}\s\p{Cf}\uFE0E\uFE0F\u20E3]/gu;
+
+// Combining marks left after NFC recomposition (e.g. overlaid strike-through U+0336, or a voiced sound
+// mark that has no precomposed form with the preceding character).
+const COMBINING_MARK_PATTERN = /\p{Mn}/gu;
 
 /**
  * NG ワードの文字列照合用に本文を正規化する。
- * NFKC → 小文字化 → カタカナをひらがなに → 記号・空白・絵文字を除去、の順に行う。
+ * NFKC → 小文字化 → カタカナをひらがなに → 記号・空白・絵文字・書式文字を除去 → NFC → 結合文字を除去、の順に行う。
+ * NFKC はスペーシング濁点（゛）を「空白 + 結合濁点」に分けるので、空白を除いた後に NFC で前の文字と合成し直す
+ * （「は゛か」を「ばか」と照合するため）。合成できずに残った結合文字（打ち消し線など）は除く。
  * 長音符「ー」は語の一部なので残す（「ばーか」と「ばか」を同一視しない）。
  * 分かち書きや記号を挟んだ書き方（「あ ほ」「あ.ほ」）を同じ語として照合するために記号と空白を除く。
  * @param {string} text 本文
@@ -32,5 +38,7 @@ export function normalizeForMatch(text) {
   return toNfkc(text)
     .toLowerCase()
     .replace(KATAKANA_TO_HIRAGANA_PATTERN, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60))
-    .replace(MATCH_NOISE_PATTERN, '');
+    .replace(MATCH_NOISE_PATTERN, '')
+    .normalize('NFC')
+    .replace(COMBINING_MARK_PATTERN, '');
 }

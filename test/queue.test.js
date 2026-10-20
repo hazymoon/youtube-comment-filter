@@ -122,14 +122,18 @@ test('batchSize 件ずつに分けて直列に処理し、セッションを必�
   assert.equal(h.calls[0].isDestroyed(), true);
   assert.equal(h.calls[1].payload.length, 3);
   answer(h.calls[1]);
+  // f はまとめた判定で hide:true なので、1 件だけで判定し直してから g に進む
   await waitForCalls(h, 3);
-  assert.equal(h.calls[2].payload.length, 1);
+  assert.deepEqual(h.calls[2].payload, [{ id: 'c0', text: 'NG です' }]);
   answer(h.calls[2]);
+  await waitForCalls(h, 4);
+  assert.equal(h.calls[3].payload.length, 1);
+  answer(h.calls[3]);
   await settle();
 
   assert.equal(h.stats.maxActive, 1);
-  assert.equal(h.stats.clones, 3);
-  assert.equal(h.stats.destroys, 3);
+  assert.equal(h.stats.clones, 4);
+  assert.equal(h.stats.destroys, 4);
   assert.deepEqual(h.verdicts.map(([id]) => id), ['a', 'b', 'c', 'd', 'e', 'f', 'g']);
   assert.deepEqual(h.verdicts[5], ['f', { hide: true, category: '暴言' }]);
   assert.deepEqual(h.pending, []);

@@ -169,9 +169,10 @@ export function compileRules({ ngUsers = [], ngWords = [] } = {}) {
           const handleMatch = MENTION_HREF_HANDLE_PATTERN.exec(pathname);
           if (handleMatch) return isNgHandle(safeDecodeUriComponent(handleMatch[1]));
           const channelMatch = MENTION_HREF_CHANNEL_PATTERN.exec(pathname);
-          if (channelMatch) return isNgChannelId(channelMatch[1]);
+          // UC が NG でなくても、宛先のリンクの文字列が @ハンドルなら本文の照合で NG ハンドルに当たりうるので続ける
+          if (channelMatch && isNgChannelId(channelMatch[1])) return true;
         }
-        // メンションの形でないリンク（URL など）が先頭にあるときは、本文のテキストで判定する
+        // メンションの形でないリンク（URL など）が先頭にあるときと、UC が NG でないときは、本文のテキストで判定する
       }
       // 表示名だけの宛先は、表示名がたまたまハンドルと一致しない限り一致しない（対象外の仕様）
       const textMatch = LEADING_MENTION_TEXT_PATTERN.exec(toNfkc(reply.text).trimStart());

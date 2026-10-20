@@ -41,6 +41,13 @@ export const MODULE_ORDER = [
   'ai.js',
   'cache.js',
   'queue.js',
+  'selectors.js',
+  'dom.js',
+  'decide.js',
+  'styles.js',
+  'ui.js',
+  'lm.js',
+  'scanner.js',
   'main.js',
 ];
 

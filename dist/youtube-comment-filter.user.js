@@ -85,6 +85,10 @@ const AI_CATEGORIES = [
 /**
  * 1 回の AI 呼び出しでまとめて判定するコメントの件数。1 にすると 1 件ずつ判定する。
  * 所要時間は件数にほぼ比例し、まとめても速くならないため、最初の結果が出るまでの待ち時間で決める（docs/spike.md）。
+ * 2 以上のとき、まとめた判定で隠すとされたコメントは 1 件ずつ判定し直してから隠す（src/queue.js の createAiQueue）。
+ * そのぶん隠すコメントが多いほど判定に時間がかかる。
+ * 隠さないとされたコメントは判定し直さないので、本文に埋めた指示で同じバッチの他のコメントを表示にさせられる。
+ * これを防げるのは 1 のときだけ。
  * @type {number}
  */
 const AI_BATCH_SIZE = 5;
@@ -144,14 +148,20 @@ function toNfkc(text) {
 // U+30FC (ー, prolonged sound mark) is intentionally excluded.
 const KATAKANA_TO_HIRAGANA_PATTERN = /[ァ-ヶヽヾ]/g;
 
-// Punctuation, symbols (incl. most emoji), and whitespace.
-// ZWJ, variation selectors, the keycap mark, and tag characters (U+E0001, U+E0020..U+E007F, used by
-// subdivision flags) are not \p{P}/\p{S} but only make up emoji sequences.
-const MATCH_NOISE_PATTERN = /[\p{P}\p{S}\s\u200D\uFE0E\uFE0F\u20E3\u{E0001}\u{E0020}-\u{E007F}]/gu;
+// Punctuation, symbols (incl. most emoji), whitespace, and format characters (\p{Cf}: zero-width
+// space/joiner, soft hyphen, word joiner, tag characters used by subdivision flags, ...).
+// Variation selectors and the keycap mark are not \p{P}/\p{S}/\p{Cf} but only make up emoji sequences.
+const MATCH_NOISE_PATTERN = /[\p{P}\p{S}\s\p{Cf}\uFE0E\uFE0F\u20E3]/gu;
+
+// Combining marks left after NFC recomposition (e.g. overlaid strike-through U+0336, or a voiced sound
+// mark that has no precomposed form with the preceding character).
+const COMBINING_MARK_PATTERN = /\p{Mn}/gu;
 
 /**
  * NG ワードの文字列照合用に本文を正規化する。
- * NFKC → 小文字化 → カタカナをひらがなに → 記号・空白・絵文字を除去、の順に行う。
+ * NFKC → 小文字化 → カタカナをひらがなに → 記号・空白・絵文字・書式文字を除去 → NFC → 結合文字を除去、の順に行う。
+ * NFKC はスペーシング濁点（゛）を「空白 + 結合濁点」に分けるので、空白を除いた後に NFC で前の文字と合成し直す
+ * （「は゛か」を「ばか」と照合するため）。合成できずに残った結合文字（打ち消し線など）は除く。
  * 長音符「ー」は語の一部なので残す（「ばーか」と「ばか」を同一視しない）。
  * 分かち書きや記号を挟んだ書き方（「あ ほ」「あ.ほ」）を同じ語として照合するために記号と空白を除く。
  * @param {string} text 本文
@@ -161,7 +171,9 @@ function normalizeForMatch(text) {
   return toNfkc(text)
     .toLowerCase()
     .replace(KATAKANA_TO_HIRAGANA_PATTERN, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60))
-    .replace(MATCH_NOISE_PATTERN, '');
+    .replace(MATCH_NOISE_PATTERN, '')
+    .normalize('NFC')
+    .replace(COMBINING_MARK_PATTERN, '');
 }
 
 // ---- hash.js ----
@@ -360,9 +372,10 @@ function compileRules({ ngUsers = [], ngWords = [] } = {}) {
           const handleMatch = MENTION_HREF_HANDLE_PATTERN.exec(pathname);
           if (handleMatch) return isNgHandle(safeDecodeUriComponent(handleMatch[1]));
           const channelMatch = MENTION_HREF_CHANNEL_PATTERN.exec(pathname);
-          if (channelMatch) return isNgChannelId(channelMatch[1]);
+          // UC が NG でなくても、宛先のリンクの文字列が @ハンドルなら本文の照合で NG ハンドルに当たりうるので続ける
+          if (channelMatch && isNgChannelId(channelMatch[1])) return true;
         }
-        // メンションの形でないリンク（URL など）が先頭にあるときは、本文のテキストで判定する
+        // メンションの形でないリンク（URL など）が先頭にあるときと、UC が NG でないときは、本文のテキストで判定する
       }
       // 表示名だけの宛先は、表示名がたまたまハンドルと一致しない限り一致しない（対象外の仕様）
       const textMatch = LEADING_MENTION_TEXT_PATTERN.exec(toNfkc(reply.text).trimStart());
@@ -759,7 +772,11 @@ function isTimeoutAbort(signal) {
  *
  * - 応答から欠けたコメントは 1 件ずつのバッチで 1 回だけ再判定し、それでも欠けたら onPending。
  *   再判定がタイムアウトして入れ直されたコメントが再び欠けたときも、再判定は重ねず onPending にする
- * - タイムアウトしたバッチは全件を onPending にし、各コメント 1 回だけ行列の末尾に入れ直す
+ * - タイムアウトしたバッチは全件を onPending にし、各コメント 1 回だけ行列の末尾に入れ直す。
+ *   判定が出たコメントは再試行の回数を消すので、後で再び enqueue されたときはまた 1 回入れ直せる
+ * - 2 件以上のバッチで hide:true になったコメントは、欠落の再判定の後に 1 件だけのバッチで判定し直し、その結果を流す。
+ *   再判定がタイムアウトしたらタイムアウトと同じく扱い、応答から欠けたら onPending にする
+ * - タイムアウトは clone できてから数える（基底セッションの準備を待つ時間は含めない）
  * - タイムアウト以外の例外は onFatal を呼び、以降の enqueue を無視する（呼び出し側はルールだけの判定に切り替える）。
  *   reset しても戻らない
  * - reset 前に始まった判定の結果は onVerdict / onPending に流さない。コールバックの中で reset されたときも、
@@ -812,15 +829,18 @@ function createAiQueue({
 
   /**
    * 1 バッチ分の prompt を実行する。セッションは必ず destroy する。
+   * タイムアウトは clone できてから数え始める。基底セッションの準備（モデルの読み込みやダウンロード、
+   * ユーザー操作の待ち）は推論の時間ではないので、上限に含めない。
    * @param {string} input 入力文
-   * @param {AbortSignal} timeoutSignal タイムアウト用シグナル
+   * @param {{ signal: AbortSignal|null }} timeout 作ったタイムアウト用シグナルを入れて返す
    * @param {AbortSignal} resetSignal reset 用シグナル
    * @returns {Promise<string>}
    */
-  async function runPrompt(input, timeoutSignal, resetSignal) {
-    const signal = AbortSignal.any([timeoutSignal, resetSignal]);
+  async function runPrompt(input, timeout, resetSignal) {
     const session = await cloneSession();
     try {
+      timeout.signal = createTimeoutSignal(timeoutMs);
+      const signal = AbortSignal.any([timeout.signal, resetSignal]);
       signal.throwIfAborted();
       return await session.prompt(input, {
         responseConstraint: responseSchema,
@@ -890,13 +910,14 @@ function createAiQueue({
   async function processBatch(batch, batchGeneration, isMissingRetry) {
     const { input, idMap } = buildBatchInput(batch, maxChars);
     const itemsById = new Map(batch.map((item) => [item.id, item]));
-    const timeoutSignal = createTimeoutSignal(timeoutMs);
+    /** @type {{ signal: AbortSignal|null }} */
+    const timeout = { signal: null };
     let responseText;
     try {
-      responseText = await runPrompt(input, timeoutSignal, resetController.signal);
+      responseText = await runPrompt(input, timeout, resetController.signal);
     } catch (error) {
       if (!isCurrent(batchGeneration)) return;
-      if (isTimeoutAbort(timeoutSignal)) {
+      if (timeout.signal !== null && isTimeoutAbort(timeout.signal)) {
         handleTimeout(batch, batchGeneration);
         return;
       }
@@ -906,10 +927,23 @@ function createAiQueue({
     if (!isCurrent(batchGeneration)) return;
 
     const { verdicts, missing } = parseBatchResponse(responseText, idMap, categoryNames);
+    /** @type {{ id: string, text: string }[]} */
+    const toConfirm = [];
     for (const [id, verdict] of verdicts) {
       if (!isCurrent(batchGeneration)) return;
+      const item = /** @type {{ id: string, text: string }} */ (itemsById.get(id));
+      // 本文に埋めた指示で同じバッチの他のコメントを隠させられるため、まとめた判定の hide:true は
+      // そのまま流さず、1 件だけのバッチで判定し直す。hide:false は判定し直さずに流すので、
+      // 同じバッチの他のコメントの指示で表示にされる経路は残る（防げるのは AI_BATCH_SIZE が 1 のときだけ）
+      if (batch.length > 1 && verdict.hide) {
+        toConfirm.push(item);
+        continue;
+      }
       inFlightIds.delete(id);
-      onVerdict(id, verdict, /** @type {{ id: string, text: string }} */ (itemsById.get(id)));
+      // 判定が出たら再試行の回数を消す。後で再び順番待ちに入ったとき（本文の再表示など）、改めて 1 回入れ直せるようにする
+      timeoutRetries.delete(id);
+      missingRetried.delete(id);
+      onVerdict(id, verdict, item);
     }
 
     for (const id of missing) {
@@ -921,6 +955,12 @@ function createAiQueue({
         continue;
       }
       missingRetried.add(id);
+      await processBatch([item], batchGeneration, true);
+    }
+
+    for (const item of toConfirm) {
+      if (!isCurrent(batchGeneration)) return;
+      // 再判定の応答から欠けたら、欠落の再判定は重ねずに判定待ちにする
       await processBatch([item], batchGeneration, true);
     }
   }
@@ -979,16 +1019,1444 @@ function createAiQueue({
   };
 }
 
-// ---- main.js ----
+// ---- selectors.js ----
 /**
- * @file エントリポイント。
+ * @file YouTube の DOM のセレクタ・タグ名と、本スクリプトが付ける属性名の定数。
+ *
+ * YouTube の変更で壊れうるので、DOM に依存する文字列はここに集める。
+ * 各定数のコメントに根拠を書く。「確認済み」は docs/dom-structure.md に記録した実測と一致するもの、
+ * 「未確認（工程 3 で確認）」は実測の記録が無く、YouTube の一般的な構造から置いたもの。
+ */
+
+/** 動画ページの本体。未確認（工程 3 で確認）: docs/dom-structure.md は ytd-comments の外側を記録していない */
+const WATCH_FLEXY_TAG = 'ytd-watch-flexy';
+
+/** コメント欄の外枠。確認済み（docs/dom-structure.md「コメント欄の外枠」） */
+const COMMENTS_SELECTOR = 'ytd-comments#comments';
+
+/** 対象にするコメント欄（動画ページのものだけ）。WATCH_FLEXY_TAG が未確認なのでこの組み合わせも未確認 */
+const WATCH_COMMENTS_SELECTOR = `${WATCH_FLEXY_TAG} ${COMMENTS_SELECTOR}`;
+
+/** 1 コメント（返信を含む）。確認済み（docs/dom-structure.md「1 コメント = 1 ytd-comment-thread-renderer」） */
+const THREAD_TAG = 'ytd-comment-thread-renderer';
+
+/** 返信の入れ物。祖先にあれば返信。確認済み（同上） */
+const REPLIES_RENDERER_TAG = 'ytd-comment-replies-renderer';
+
+/** thread の直下の本体の入れ物の id。確認済み（同上） */
+const COMMENT_CONTAINER_ID = 'comment-container';
+
+/** thread の直下の返信の入れ物の id。確認済み（同上） */
+const REPLIES_ID = 'replies';
+
+/** コメント本体。#comment-container の直下。確認済み（同上） */
+const VIEW_MODEL_TAG = 'ytd-comment-view-model';
+
+/** コメント本体の id。確認済み（同上） */
+const VIEW_MODEL_ID = 'comment';
+
+/** 投稿者のリンク（href が /@handle）。確認済み（docs/dom-structure.md「ytd-comment-view-model#comment の中」） */
+const AUTHOR_LINK_SELECTOR = '#header-author h3 a#author-text';
+
+/** チャンネル所有者のコメントでの投稿者のリンク（href が /@handle）。確認済み（同上） */
+const OWNER_BADGE_LINK_SELECTOR = '#author-comment-badge ytd-author-comment-badge-renderer a#name';
+
+/** 投稿日時のリンク（href に lc=<commentId>）。確認済み（同上） */
+const PUBLISHED_TIME_LINK_SELECTOR = '#published-time-text a';
+
+/** 本文。属性としては見えないが querySelector で取れる。確認済み（同上） */
+const CONTENT_TEXT_SELECTOR = '#content-text';
+
+/** 本文の代わりの取得先。確認済み（同上） */
+const CONTENT_TEXT_FALLBACK_SELECTOR = '#expander yt-attributed-string[slot="content"]';
+
+/** 本文の中のリンク。@返信の宛先の判定に使う。確認済み（同上。宛先は先頭の a.ytAttributedStringLink） */
+const CONTENT_LINK_SELECTOR = 'a[href]';
+
+/** YouTube 自身の折りたたみ。確認済み（同上） */
+const EXPANDER_SELECTOR = 'ytd-expander#expander';
+
+/** 折りたたみの中の本文の枠（-webkit-line-clamp: 4）。EXPANDER_SELECTOR の直下。確認済み（同上） */
+const EXPANDER_CONTENT_ID = 'content';
+
+/** 「もっと見る」ボタン。確認済み（同上） */
+const MORE_BUTTON_SELECTOR = 'tp-yt-paper-button#more';
+
+/** 「一部を表示」ボタン。確認済み（同上） */
+const LESS_BUTTON_SELECTOR = 'tp-yt-paper-button#less';
+
+/**
+ * 段階表示のクリックを反応させない要素。
+ * a と tp-yt-paper-button は確認済み（本文のリンクと #more / #less）。
+ * button・[role="button"]・yt-button-shape は未確認（工程 3 で確認）: 本文の周辺に現れうるものとして防御的に並べている
+ */
+const INTERACTIVE_SELECTOR = 'a, button, tp-yt-paper-button, [role="button"], yt-button-shape';
+
+/** SPA の遷移の開始。未確認（工程 3 で確認）: docs/ に記録が無い */
+const NAVIGATE_START_EVENT = 'yt-navigate-start';
+
+/** SPA の遷移の完了。未確認（工程 3 で確認）: docs/ に記録が無い */
+const NAVIGATE_FINISH_EVENT = 'yt-navigate-finish';
+
+/** 動画ページのパス。対象のページかの判定に使う */
+const WATCH_PATHNAME = '/watch';
+
+/**
+ * html 要素に付ける。動画ページ（WATCH_PATHNAME）にいる間だけ付ける。
+ * CSS が未確認の WATCH_FLEXY_TAG だけに頼らずに対象のコメント欄を決めるため
+ */
+const WATCH_ATTR = 'data-ycf-watch';
+
+/** html 要素に付ける。付いている間はコメント欄を開く */
+const OPEN_ATTR = 'data-ycf-open';
+
+/** thread に付ける表示状態（'shown' | 'hidden' | 'pending'）。無い thread は判定前として隠す */
+const STATE_ATTR = 'data-ycf-state';
+
+/** thread に付ける状態の理由（decide.js の reason） */
+const REASON_ATTR = 'data-ycf-reason';
+
+/** thread に付ける、判定したコメントの ID */
+const ID_ATTR = 'data-ycf-id';
+
+/** thread に付ける、判定した本文のハッシュ */
+const HASH_ATTR = 'data-ycf-hash';
+
+/** thread に付ける。付いている間は本文を全文表示に固定する */
+const EXPANDED_ATTR = 'data-ycf-expanded';
+
+/** 件数バーの要素の id */
+const BAR_ID = 'ycf-bar';
+
+/** style 要素の id */
+const STYLE_ID = 'ycf-style';
+
+// ---- dom.js ----
+/**
+ * @file コメントの DOM を読む関数。
+ *
+ * document 全体には触れず、渡された要素とその子孫・祖先だけを読む（テストで偽の要素を渡せるようにするため）。
+ * 使う要素の機能は children / id / tagName / getAttribute / querySelector / textContent / parentElement と、
+ * page 世界で読める data / polymerController に限る。
+ */
+
+
+const HANDLE_PATH_PATTERN = /^\/@([^/?#]+)/;
+
+/**
+ * 要素のタグ名を小文字で返す。
+ * @param {any} el 要素
+ * @returns {string}
+ */
+function tagNameOf(el) {
+  return typeof el?.tagName === 'string' ? el.tagName.toLowerCase() : '';
+}
+
+/**
+ * id が一致する直下の子要素を返す。
+ * @param {any} el 親要素
+ * @param {string} id 子要素の id
+ * @param {string} [tag] 指定したときはタグ名も一致するものに限る
+ * @returns {any|null}
+ */
+function directChildById(el, id, tag) {
+  for (const child of Array.from(el?.children ?? [])) {
+    if (child?.id === id && (tag === undefined || tagNameOf(child) === tag)) return child;
+  }
+  return null;
+}
+
+/**
+ * thread の直下の #comment-container の中のコメント本体を返す。入れ子の返信の本体は返さない。
+ * @param {any} threadEl ytd-comment-thread-renderer
+ * @returns {any|null} ytd-comment-view-model#comment
+ */
+function findOwnViewModel(threadEl) {
+  const container = directChildById(threadEl, COMMENT_CONTAINER_ID);
+  return container ? directChildById(container, VIEW_MODEL_ID, VIEW_MODEL_TAG) : null;
+}
+
+/**
+ * 祖先（自身は含まない）に指定のタグの要素があるかを、条件付きで調べる。
+ * @param {any} el 起点
+ * @param {string} tag タグ名
+ * @param {(ancestor: any) => boolean} [predicate] 追加の条件
+ * @returns {boolean}
+ */
+function hasAncestor(el, tag, predicate = () => true) {
+  for (let node = el?.parentElement ?? null; node; node = node.parentElement ?? null) {
+    if (tagNameOf(node) === tag && predicate(node)) return true;
+  }
+  return false;
+}
+
+/**
+ * 祖先の thread（自身は除く）が非表示（data-ycf-state="hidden"）か。
+ * 親が非表示ならスレッドごと隠れているので、判定も件数の集計もしない。
+ * @param {any} threadEl ytd-comment-thread-renderer
+ * @returns {boolean}
+ */
+function isInsideHiddenThread(threadEl) {
+  return hasAncestor(threadEl, THREAD_TAG, (ancestor) => ancestor.getAttribute?.(STATE_ATTR) === 'hidden');
+}
+
+/**
+ * href の文字列を URL として解釈する。
+ * @param {string|null|undefined} href getAttribute('href') の値
+ * @returns {URL|null}
+ */
+function parseYoutubeHref(href) {
+  if (typeof href !== 'string' || href === '') return null;
+  try {
+    return new URL(href, 'https://www.youtube.com');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 投稿者のリンクの href からハンドルを取り出す。
+ * @param {string|null|undefined} href "/@handle" 形式
+ * @returns {string|null} "@" 付きのハンドル。取り出せなければ null
+ */
+function handleFromHref(href) {
+  const url = parseYoutubeHref(href);
+  if (!url) return null;
+  const match = HANDLE_PATH_PATTERN.exec(url.pathname);
+  if (!match) return null;
+  try {
+    return `@${decodeURIComponent(match[1])}`;
+  } catch {
+    return `@${match[1]}`;
+  }
+}
+
+/**
+ * 投稿日時のリンクの href からコメント ID（lc= パラメータ）を取り出す。
+ * @param {string|null|undefined} href "/watch?v=…&lc=<commentId>" 形式
+ * @returns {string|null}
+ */
+function commentIdFromHref(href) {
+  const url = parseYoutubeHref(href);
+  const id = url?.searchParams.get('lc');
+  return id ? id : null;
+}
+
+/**
+ * 空でない文字列ならそのまま、そうでなければ null を返す。
+ * @param {unknown} value 値
+ * @returns {string|null}
+ */
+function nonEmptyString(value) {
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/**
+ * コメント ID を取り出す。page 世界のデータを優先し、無ければ投稿日時のリンクの lc= を使う。
+ * @param {any} viewModel ytd-comment-view-model
+ * @returns {string|null}
+ */
+function readCommentId(viewModel) {
+  return (
+    nonEmptyString(viewModel?.data?.commentId) ??
+    nonEmptyString(viewModel?.polymerController?.data?.commentId) ??
+    commentIdFromHref(viewModel?.querySelector?.(PUBLISHED_TIME_LINK_SELECTOR)?.getAttribute?.('href'))
+  );
+}
+
+/**
+ * 投稿者のハンドルを取り出す。チャンネル所有者のコメントでは a#author-text が hidden になるが href は残るので、
+ * a#author-text を先に見て、取れなければバッジの a#name を見る。
+ * @param {any} viewModel ytd-comment-view-model
+ * @returns {string|null}
+ */
+function readAuthorHandle(viewModel) {
+  for (const selector of [AUTHOR_LINK_SELECTOR, OWNER_BADGE_LINK_SELECTOR]) {
+    const handle = handleFromHref(viewModel?.querySelector?.(selector)?.getAttribute?.('href'));
+    if (handle) return handle;
+  }
+  return null;
+}
+
+/**
+ * 本文の先頭にあるリンクの href を返す（@返信の宛先の判定に使う）。
+ * 本文の最初のリンクについて、本文が（先頭の空白を除いて）そのリンクの文字列で始まるときだけ返す。
+ * @param {any} contentEl 本文の要素
+ * @param {string} rawText 本文の要素の textContent
+ * @returns {string|null}
+ */
+function readLeadingMentionHref(contentEl, rawText) {
+  const link = contentEl?.querySelector?.(CONTENT_LINK_SELECTOR);
+  if (!link) return null;
+  const linkText = String(link.textContent ?? '').trim();
+  if (linkText === '' || !rawText.trimStart().startsWith(linkText)) return null;
+  return nonEmptyString(link.getAttribute?.('href'));
+}
+
+/**
+ * @typedef {object} ExtractedComment
+ * @property {string} id コメント ID
+ * @property {string} text 本文（前後の空白を除く）。画像の絵文字だけの本文などは空文字
+ * @property {string} textHash 本文のハッシュ（hashString）
+ * @property {{ handle: string|null, channelId: string|null }} author 投稿者
+ * @property {boolean} isReply 返信か
+ * @property {string|null} leadingMentionHref 本文の先頭にあるリンクの href
  */
 
 /**
- * ユーザスクリプトの起動処理。ビルドが IIFE の最後でこの関数を呼ぶ。
- * DOM の監視・表示の切り替え・LanguageModel の呼び出しは第 2 段で実装する。
+ * thread からコメントの情報を読む。
+ * 本体・本文の要素が見つからないか、コメント ID が取れないときは unreadable を返す（呼び出し側は判定待ちとして隠す）。
+ * @param {any} threadEl ytd-comment-thread-renderer
+ * @returns {ExtractedComment | { unreadable: string }}
  */
-function main() {}
+function extractComment(threadEl) {
+  const viewModel = findOwnViewModel(threadEl);
+  if (!viewModel) return { unreadable: 'コメント本体の要素が見つかりません' };
+  const contentEl =
+    viewModel.querySelector?.(CONTENT_TEXT_SELECTOR) ?? viewModel.querySelector?.(CONTENT_TEXT_FALLBACK_SELECTOR) ?? null;
+  if (!contentEl) return { unreadable: '本文の要素が見つかりません' };
+  const id = readCommentId(viewModel);
+  if (!id) return { unreadable: 'コメント ID が取れません' };
+
+  const rawText = String(contentEl.textContent ?? '');
+  const text = rawText.trim();
+  return {
+    id,
+    text,
+    textHash: hashString(text),
+    author: {
+      handle: readAuthorHandle(viewModel),
+      channelId: nonEmptyString(viewModel.polymerController?.__data?.commentEntity?.author?.channelId),
+    },
+    isReply: hasAncestor(threadEl, REPLIES_RENDERER_TAG),
+    leadingMentionHref: readLeadingMentionHref(contentEl, rawText),
+  };
+}
+
+// ---- decide.js ----
+/**
+ * @file コメントの表示状態の決定と、件数バーの文字列の組み立て（純粋関数）。
+ */
+
+/**
+ * AI 判定の状態。
+ * - 'initializing': availability() の確認中か、基底セッションを作成中
+ * - 'ready': 基底セッションができ、判定できる
+ * - 'needs-activation': モデルのダウンロードが要り、ユーザー操作（「コメントを表示」のクリック）を待っている
+ * - 'disabled': AI を使わない（設定で無効、LanguageModel が無い、availability() が 'unavailable'）
+ * - 'failed': 推論や作成でタイムアウト以外のエラーが起き、AI を止めた
+ * @typedef {'initializing'|'ready'|'needs-activation'|'disabled'|'failed'} AiMode
+ */
+
+/**
+ * 表示状態の理由。
+ * - 'ngUser' / 'ngWord' / 'ai': 非表示にした理由
+ * - 'unreadable': DOM からコメントを読めないので判定待ちとして隠している
+ * - 'awaiting-ai': AI の判定の順番待ちか判定中
+ * - 'ai-unresolved': AI の判定が得られなかった（タイムアウト・応答の欠落）。判定し直すまで判定待ちとして隠す
+ * @typedef {'ngUser'|'ngWord'|'ai'|'unreadable'|'awaiting-ai'|'ai-unresolved'} StateReason
+ */
+
+/**
+ * @typedef {object} Decision
+ * @property {'shown'|'hidden'|'pending'} state 表示状態
+ * @property {StateReason} [reason] 理由（表示するときは無い）
+ * @property {boolean} enqueue AI の判定の順番待ちに入れるか
+ */
+
+/**
+ * コメントの表示状態を決める。
+ *
+ * 順に、読めない → 判定待ち（fail-closed）、ルールで NG → 非表示、本文が空 → 表示（AI に送らない）、
+ * AI が使えない → 表示（ルールは通過済み）、キャッシュがある → それに従う、それ以外 → AI の判定を待つ。
+ * ルールを本文が空かより先に見るのは、画像の絵文字だけのコメントにも NG ユーザ（投稿者・@返信の宛先）を効かせるため。
+ * AI の準備中（'initializing' / 'needs-activation'）でも順番待ちに入れる。順番待ちは基底セッションの準備を待ってから判定する。
+ *
+ * @param {object} input
+ * @param {import('./dom.js').ExtractedComment | { unreadable: string }} input.extracted extractComment の結果
+ * @param {{ reason: 'ngUser'|'ngWord'|null }|null} input.ruleResult judgeByRules の結果（読めないときは null でよい）
+ * @param {AiMode} input.aiMode AI 判定の状態
+ * @param {{ hide: boolean, category: string|null }|null} input.cached キャッシュの判定結果
+ * @param {boolean} [input.aiUnresolved] 同じコメント（ID と本文が同じ）の AI 判定が前に得られなかったか
+ * @returns {Decision}
+ */
+function decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved = false }) {
+  if ('unreadable' in extracted) return { state: 'pending', reason: 'unreadable', enqueue: false };
+  if (ruleResult?.reason === 'ngUser' || ruleResult?.reason === 'ngWord') {
+    return { state: 'hidden', reason: ruleResult.reason, enqueue: false };
+  }
+  if (extracted.text === '') return { state: 'shown', enqueue: false };
+  if (aiMode === 'disabled' || aiMode === 'failed') return { state: 'shown', enqueue: false };
+  if (cached) return cached.hide ? { state: 'hidden', reason: 'ai', enqueue: false } : { state: 'shown', enqueue: false };
+  return { state: 'pending', reason: aiUnresolved ? 'ai-unresolved' : 'awaiting-ai', enqueue: true };
+}
+
+/**
+ * @typedef {object} StateCounts
+ * @property {number} ngUser NG ユーザで非表示
+ * @property {number} ngWord NG ワードで非表示
+ * @property {number} ai AI の判定で非表示
+ * @property {number} pending 判定待ち（読めない、または AI の判定が得られなかった）
+ * @property {number} judging 判定中（AI の順番待ち・判定中。判定待ちには数えない）
+ */
+
+/**
+ * 表示状態を集計する。隠したスレッドの中のコメントは呼び出し側が除いて渡す（スレッド 1 件として数えるため）。
+ * reason が 'awaiting-ai' のものは判定中、'unreadable' と 'ai-unresolved' のものは判定待ちに数える。
+ * 判定待ちに数えたコメントを順番待ちに入れ直しても、判定が出るまでは判定待ちのまま数える。
+ * @param {{ state: string|null, reason?: string|null }[]} records 各コメントの状態
+ * @returns {StateCounts}
+ */
+function countStates(records) {
+  const counts = { ngUser: 0, ngWord: 0, ai: 0, pending: 0, judging: 0 };
+  for (const { state, reason } of records) {
+    if (state === 'hidden') {
+      if (reason === 'ngUser') counts.ngUser += 1;
+      else if (reason === 'ngWord') counts.ngWord += 1;
+      else if (reason === 'ai') counts.ai += 1;
+    } else if (state === 'pending') {
+      if (reason === 'awaiting-ai') counts.judging += 1;
+      else counts.pending += 1;
+    }
+  }
+  return counts;
+}
+
+/**
+ * 件数バーの件数の文字列を組み立てる。判定中のものがあるときだけ末尾に件数を添える。
+ * @param {StateCounts} counts countStates の結果
+ * @returns {string}
+ */
+function buildCountText(counts) {
+  const base = `NG ユーザ ${counts.ngUser} 件 / NG ワード ${counts.ngWord} 件 / AI ${counts.ai} 件 / 判定待ち ${counts.pending} 件 非表示`;
+  return counts.judging > 0 ? `${base}（判定中 ${counts.judging} 件）` : base;
+}
+
+/**
+ * @typedef {object} AiState
+ * @property {AiMode} mode AI 判定の状態
+ * @property {'config'|'unsupported'|'unavailable'} [disabledReason] 'disabled' の理由
+ * @property {number|null} [progress] モデルのダウンロードの進み具合（0〜1）。ダウンロード中でなければ null
+ */
+
+/**
+ * 件数バーの AI の状態の文字列を組み立てる。AI を使わないときはルールのみで判定していることを示す。
+ * @param {AiState} aiState AI の状態
+ * @returns {string}
+ */
+function buildStatusText(aiState) {
+  switch (aiState.mode) {
+    case 'ready':
+      return 'AI 判定: 有効';
+    case 'initializing':
+      if (typeof aiState.progress === 'number') {
+        return `AI 判定: モデルをダウンロード中 ${Math.round(Math.min(1, Math.max(0, aiState.progress)) * 100)}%`;
+      }
+      return 'AI 判定: 準備中';
+    case 'needs-activation':
+      return 'AI 判定: 「コメントを表示」を押すとモデルのダウンロードを始めます';
+    case 'disabled':
+      if (aiState.disabledReason === 'config') return 'AI 判定: 設定で無効（ルールのみで判定）';
+      return 'AI 判定: この環境では使えません（ルールのみで判定）';
+    case 'failed':
+      return 'AI 判定: エラーで停止（ルールのみで判定）';
+    default:
+      return '';
+  }
+}
+
+// ---- styles.js ----
+/**
+ * @file 本スクリプトの CSS。
+ */
+
+
+/**
+ * 対象のコメント欄を指すセレクタの組み立て方。html 要素への条件（開閉）を足せる形で返す。
+ * - WATCH_ATTR: 動画ページかを JS が html の属性で宣言する。確認済みのセレクタ（COMMENTS_SELECTOR）だけに依存する
+ * - WATCH_COMMENTS_SELECTOR: 未確認の ytd-watch-flexy に依存する。属性が付く前の保険として併記する
+ * どちらかが外れても、もう一方で閉じる・隠す規則が当たるようにする（fail-closed）。
+ * @type {((htmlCondition: string) => string)[]}
+ */
+const COMMENTS_SCOPES = [
+  (htmlCondition) => `html[${WATCH_ATTR}]${htmlCondition} ${COMMENTS_SELECTOR}`,
+  (htmlCondition) => (htmlCondition ? `html${htmlCondition} ${WATCH_COMMENTS_SELECTOR}` : WATCH_COMMENTS_SELECTOR),
+];
+
+/**
+ * すべてのコメント欄のセレクタについてセレクタを作り、カンマで並べる。
+ * @param {(thread: string, htmlCondition: (cond: string) => string) => string[]} build 1 つのコメント欄のセレクタから作る
+ * @returns {string}
+ */
+function forEachScope(build) {
+  return COMMENTS_SCOPES.flatMap((scope) => build(`${scope('')} ${THREAD_TAG}`, (cond) => `${scope(cond)} ${THREAD_TAG}`)).join(
+    ',\n',
+  );
+}
+
+/**
+ * CSS の文字列を返す。
+ *
+ * - 対象は動画ページのコメント欄の中だけにする。ほかのページのコメントを判定前のまま隠さないため
+ * - thread から #comment-container / #replies へは直下結合子で書く。子孫結合子だと、入れ子の返信に親の状態が漏れる
+ * - 状態の属性が無い thread は判定前として隠す（fail-closed）。スクリプトが属性を付けるまでの間も見せない
+ * - 判定前・判定待ちは thread 自体も隠す。#comment-container の id が変わっても中身が見えないようにするため
+ * - コメント欄を閉じるときは visibility を使う。display:none だと YouTube がコメントを読み込まない（docs/spike.md）
+ * - 判定前・判定待ちのコメントは 1 行の帯にして高さを保つ。高さが 0 になると続きの読み込みが連続して走りうる
+ *   （docs/review-findings.md）
+ * @returns {string}
+ */
+function buildStyles() {
+  const close = COMMENTS_SCOPES.map((scope) => scope(`:not([${OPEN_ATTR}])`)).join(',\n');
+  const unjudgedStates = [`:not([${STATE_ATTR}])`, `[${STATE_ATTR}="pending"]`];
+  const unjudgedThread = forEachScope((thread) => unjudgedStates.map((st) => `${thread}${st}`));
+  const unjudgedContainer = forEachScope((thread) => unjudgedStates.map((st) => `${thread}${st} > #${COMMENT_CONTAINER_ID}`));
+  const unjudgedReplies = forEachScope((thread) => unjudgedStates.map((st) => `${thread}${st} > #${REPLIES_ID}`));
+  const unjudgedBand = forEachScope((thread) => unjudgedStates.map((st) => `${thread}${st} > #${COMMENT_CONTAINER_ID}::before`));
+  const openBand = forEachScope((_thread, withHtml) =>
+    unjudgedStates.map((st) => `${withHtml(`[${OPEN_ATTR}]`)}${st} > #${COMMENT_CONTAINER_ID}::before`),
+  );
+  const waitingBand = forEachScope((thread) =>
+    ['unreadable', 'ai-unresolved'].map(
+      (reason) => `${thread}[${STATE_ATTR}="pending"][${REASON_ATTR}="${reason}"] > #${COMMENT_CONTAINER_ID}::before`,
+    ),
+  );
+  const hiddenThread = forEachScope((thread) => [`${thread}[${STATE_ATTR}="hidden"]`]);
+
+  const contentOf = (container) => `${container} ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
+  const hoverOf = (container) => `${container} ${VIEW_MODEL_TAG}:hover ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
+  const shownContent = forEachScope((thread) => [contentOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`)]);
+  const hoverContent = forEachScope((thread) => [hoverOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`)]);
+  // 全文固定の間にホバーしても 4 行に戻らないよう、ホバーの規則より詳細度の高いセレクタも並べる
+  const expandedContent = forEachScope((thread) => {
+    const container = `${thread}[${STATE_ATTR}="shown"][${EXPANDED_ATTR}] > #${COMMENT_CONTAINER_ID}`;
+    return [contentOf(container), hoverOf(container)];
+  });
+  const shownButtons = forEachScope((thread) =>
+    [MORE_BUTTON_SELECTOR, LESS_BUTTON_SELECTOR].map(
+      (button) => `${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID} ${EXPANDER_SELECTOR} > ${button}`,
+    ),
+  );
+
+  return `
+/* コメント欄を閉じる */
+${close} {
+  visibility: hidden !important;
+}
+
+/* 判定前・判定待ち: thread 自体を 1 行の高さに切り詰めて隠す */
+${unjudgedThread} {
+  position: relative !important;
+  visibility: hidden !important;
+  max-height: 2.4rem !important;
+  overflow: hidden !important;
+}
+/* 判定前・判定待ち: 中身を見せず 1 行の帯にする */
+${unjudgedContainer} {
+  position: relative !important;
+  visibility: hidden !important;
+  height: 2.4rem !important;
+  max-height: 2.4rem !important;
+  overflow: hidden !important;
+}
+${unjudgedBand} {
+  content: "判定中…";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 56px;
+  font-size: 1.2rem;
+  color: var(--yt-spec-text-secondary, #606060);
+}
+${waitingBand} {
+  content: "判定待ち";
+}
+/* 帯は欄を開いているときだけ見せる。閉じた欄の visibility:hidden を子孫の visible が打ち消して帯だけ浮き出るため */
+${openBand} {
+  visibility: visible;
+}
+/* 親が決まるまで返信も見せない */
+${unjudgedReplies} {
+  display: none !important;
+}
+
+/* 非表示: 返信ごと消す */
+${hiddenThread} {
+  display: none !important;
+}
+
+/* 表示: 段階表示（既定 1 行、ホバーで 4 行、クリックで全文） */
+${shownContent} {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+  max-height: none !important;
+  -webkit-line-clamp: 1 !important;
+  cursor: pointer;
+}
+${hoverContent} {
+  -webkit-line-clamp: 4 !important;
+}
+${expandedContent} {
+  display: block !important;
+  overflow: visible !important;
+  -webkit-line-clamp: unset !important;
+}
+${shownButtons} {
+  display: none !important;
+}
+
+/* 件数バー */
+#${BAR_ID} {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 24px 0 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--yt-spec-badge-chip-background, rgba(0, 0, 0, 0.05));
+  color: var(--yt-spec-text-primary, #0f0f0f);
+  font-family: "Roboto", "Arial", sans-serif;
+  font-size: 1.4rem;
+  line-height: 2rem;
+}
+#${BAR_ID}[hidden] {
+  display: none !important;
+}
+#${BAR_ID} button {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 18px;
+  background: var(--yt-spec-additive-background, rgba(0, 0, 0, 0.05));
+  color: var(--yt-spec-text-primary, #0f0f0f);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+#${BAR_ID} button:hover {
+  background: var(--yt-spec-mono-tonal-hover, rgba(0, 0, 0, 0.1));
+}
+#${BAR_ID} .ycf-status {
+  color: var(--yt-spec-text-secondary, #606060);
+}
+`;
+}
+
+// ---- ui.js ----
+/**
+ * @file 件数バー。要素は createElement と textContent だけで作る（Trusted Types のため文字列 HTML の代入はしない）。
+ */
+
+
+/**
+ * @typedef {object} CountBar
+ * @property {HTMLElement} element バーの要素
+ * @property {(state: { open: boolean, countText: string, statusText: string, visible: boolean }) => void} update
+ *   表示を更新する。変わった部分だけ書き換える
+ * @property {(commentsEl: Element) => void} attach コメント欄の直前の兄弟として差し込む（差し込み済みなら何もしない）
+ */
+
+/**
+ * 件数バーを作る。
+ * バーはコメント欄（ytd-comments#comments）の直前の兄弟に置く。コメント欄を visibility:hidden で閉じても見えるようにするため。
+ * @param {object} options
+ * @param {Document} options.doc 要素を作る document
+ * @param {() => void} options.onToggle 開閉ボタンが押された。クリックの同期区間で呼ぶ（LanguageModel.create のユーザー操作に使うため）
+ * @returns {CountBar}
+ */
+function createCountBar({ doc, onToggle }) {
+  const element = doc.createElement('div');
+  element.id = BAR_ID;
+  element.hidden = true;
+
+  const button = doc.createElement('button');
+  button.type = 'button';
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onToggle();
+  });
+
+  const counts = doc.createElement('span');
+  counts.className = 'ycf-counts';
+  const status = doc.createElement('span');
+  status.className = 'ycf-status';
+
+  element.append(button, counts, status);
+
+  /**
+   * 文字列が変わったときだけ書き換える（不要な再描画を避ける）。
+   * @param {HTMLElement} el 要素
+   * @param {string} text 文字列
+   */
+  const setText = (el, text) => {
+    if (el.textContent !== text) el.textContent = text;
+  };
+
+  return {
+    element,
+    update({ open, countText, statusText, visible }) {
+      setText(button, open ? 'コメントを隠す' : 'コメントを表示');
+      button.setAttribute('aria-expanded', open ? 'true' : 'false');
+      setText(counts, countText);
+      setText(status, statusText);
+      if (element.hidden === visible) element.hidden = !visible;
+    },
+    attach(commentsEl) {
+      const parent = commentsEl.parentNode;
+      if (!parent) return;
+      if (element.parentNode === parent && element.nextElementSibling === commentsEl) return;
+      parent.insertBefore(element, commentsEl);
+    },
+  };
+}
+
+// ---- lm.js ----
+/**
+ * @file LanguageModel（Chrome の Prompt API）との接続。基底セッションを 1 つ作り、判定ごとに clone させる。
+ */
+
+
+/**
+ * availability() と create() に同じものを渡す（片方だけに付けると結果が食い違いうる。docs/review-findings.md）。
+ */
+const LM_LANGUAGE_OPTIONS = {
+  expectedInputs: [{ type: 'text', languages: ['ja'] }],
+  expectedOutputs: [{ type: 'text', languages: ['ja'] }],
+};
+
+/**
+ * page 世界の LanguageModel を返す。無ければ undefined。
+ * @returns {any}
+ */
+function defaultLanguageModel() {
+  return typeof LanguageModel === 'undefined' ? undefined : LanguageModel;
+}
+
+/**
+ * @typedef {object} LanguageModelController
+ * @property {() => import('./decide.js').AiState} getState 現在の状態
+ * @property {() => Promise<void>} init availability() を確かめ、使えるなら基底セッションの作成を始める
+ * @property {() => void} activate ユーザー操作を起点に基底セッションの作成を始める。クリックハンドラの同期区間で最初に呼ぶ
+ * @property {() => Promise<any>} cloneSession 基底セッションの準備を待って clone する。作成に失敗していれば reject する
+ * @property {(error: unknown) => void} markFailed 推論でタイムアウト以外のエラーが起きたことを記録する
+ * @property {() => void} destroy 基底セッションを破棄する
+ */
+
+/**
+ * LanguageModel との接続を作る。
+ *
+ * - AI_ENABLED が false か LanguageModel が無ければ 'disabled'
+ * - availability() が 'available' なら、ユーザー操作なしでそのまま作成する（'initializing' → 'ready'）
+ * - 'downloadable' / 'downloading' なら、ダウンロードにユーザー操作が要るので 'needs-activation' にして activate() を待つ
+ * - 'unavailable' なら 'disabled'、availability() の例外や作成の失敗は 'failed'
+ *
+ * 基底セッションは SPA の遷移をまたいで使い回す（作成にモデルの読み込み分の時間がかかるため。docs/spike.md）。
+ *
+ * @param {object} options
+ * @param {{ name: string, description: string }[]} options.categories AI_CATEGORIES
+ * @param {boolean} options.enabled AI_ENABLED
+ * @param {(state: import('./decide.js').AiState) => void} options.onStateChange 状態が変わった
+ * @param {() => any} [options.getLanguageModel] LanguageModel を返す（テストで差し替える）
+ * @returns {LanguageModelController}
+ */
+function createLanguageModelController({ categories, enabled, onStateChange, getLanguageModel = defaultLanguageModel }) {
+  /** @type {import('./decide.js').AiState} */
+  let state = { mode: 'initializing', progress: null };
+  /** @type {Promise<any>|null} */
+  let createPromise = null;
+  /** @type {any} */
+  let baseSession = null;
+  let availabilityPending = false;
+
+  /** @type {(session: any) => void} */
+  let resolveReady = () => {};
+  /** @type {(error: unknown) => void} */
+  let rejectReady = () => {};
+  /** 基底セッションの準備。作成の成否が決まるまで待たせる */
+  const ready = new Promise((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  // cloneSession が呼ばれないまま失敗しても未処理の reject にしない
+  ready.catch(() => {});
+
+  /**
+   * 状態を変えて知らせる。
+   * @param {import('./decide.js').AiState} next 次の状態
+   */
+  function setState(next) {
+    state = next;
+    onStateChange(state);
+  }
+
+  /**
+   * AI を使わない状態にする。
+   * @param {'config'|'unsupported'|'unavailable'} reason 理由
+   */
+  function disable(reason) {
+    setState({ mode: 'disabled', disabledReason: reason });
+    rejectReady(new Error(`LanguageModel を使いません（${reason}）`));
+  }
+
+  /**
+   * 基底セッションの作成を始める。await を挟まずに create を呼ぶ（クリックのユーザー操作を失わないため）。
+   * @param {any} languageModel LanguageModel
+   */
+  function startCreate(languageModel) {
+    if (createPromise) return;
+    setState({ mode: 'initializing', progress: null });
+    try {
+      createPromise = Promise.resolve(
+        languageModel.create({
+          ...LM_LANGUAGE_OPTIONS,
+          initialPrompts: buildInitialPrompts(categories),
+          monitor(monitor) {
+            monitor.addEventListener('downloadprogress', (event) => {
+              if (state.mode !== 'initializing') return;
+              const loaded = Number(event?.loaded);
+              // ダウンロード済みでも 0 → 1 が即時に届くので、1 に達したら進み具合を消す（docs/spike.md）
+              setState({ mode: 'initializing', progress: Number.isFinite(loaded) && loaded < 1 ? loaded : null });
+            });
+          },
+        }),
+      );
+    } catch (error) {
+      createPromise = Promise.reject(error);
+    }
+    createPromise.then(
+      (session) => {
+        baseSession = session;
+        if (state.mode === 'initializing') setState({ mode: 'ready' });
+        resolveReady(session);
+      },
+      (error) => {
+        if (state.mode !== 'disabled') setState({ mode: 'failed' });
+        rejectReady(error);
+      },
+    );
+  }
+
+  return {
+    getState() {
+      return state;
+    },
+
+    async init() {
+      if (!enabled) {
+        disable('config');
+        return;
+      }
+      const languageModel = getLanguageModel();
+      if (!languageModel || typeof languageModel.availability !== 'function') {
+        disable('unsupported');
+        return;
+      }
+      setState({ mode: 'initializing', progress: null });
+      let availability;
+      availabilityPending = true;
+      try {
+        availability = await languageModel.availability(LM_LANGUAGE_OPTIONS);
+      } catch (error) {
+        availabilityPending = false;
+        if (!createPromise) {
+          setState({ mode: 'failed' });
+          rejectReady(error);
+        }
+        return;
+      }
+      availabilityPending = false;
+      if (createPromise) {
+        // activate() が先に作成を始めた。使えない環境なら作成の失敗より「使えない」を優先して示す
+        if (availability === 'unavailable') disable('unavailable');
+        return;
+      }
+      if (availability === 'available') {
+        startCreate(languageModel);
+      } else if (availability === 'downloadable' || availability === 'downloading') {
+        setState({ mode: 'needs-activation' });
+      } else {
+        disable('unavailable');
+      }
+    },
+
+    activate() {
+      if (createPromise) return;
+      // availability() の結果を待っている間に押されたときも、ユーザー操作を逃さないようここで作成を始める
+      if (state.mode !== 'needs-activation' && !(state.mode === 'initializing' && availabilityPending)) return;
+      const languageModel = getLanguageModel();
+      if (!languageModel) return;
+      startCreate(languageModel);
+    },
+
+    async cloneSession() {
+      const session = await ready;
+      return session.clone();
+    },
+
+    markFailed() {
+      if (state.mode !== 'disabled' && state.mode !== 'failed') setState({ mode: 'failed' });
+    },
+
+    destroy() {
+      try {
+        baseSession?.destroy();
+      } catch {
+        // 破棄の失敗は無視する（ページを離れるときにしか呼ばない）
+      }
+      baseSession = null;
+    },
+  };
+}
+
+// ---- scanner.js ----
+/**
+ * @file コメント欄の thread の判定と表示状態の反映。document・LanguageModel・順番待ちに触れず、
+ * 渡された thread の要素と注入された依存だけを使う（テストで偽の要素を渡せるようにするため）。
+ */
+
+
+/**
+ * thread の表示状態の属性を書き換える。変わらない属性には触れない。
+ * @param {Element} thread ytd-comment-thread-renderer
+ * @param {'shown'|'hidden'|'pending'} state 表示状態
+ * @param {string|undefined} reason 理由
+ */
+function applyThreadState(thread, state, reason) {
+  if (thread.getAttribute(STATE_ATTR) !== state) thread.setAttribute(STATE_ATTR, state);
+  if (reason === undefined) {
+    if (thread.hasAttribute(REASON_ATTR)) thread.removeAttribute(REASON_ATTR);
+  } else if (thread.getAttribute(REASON_ATTR) !== reason) {
+    thread.setAttribute(REASON_ATTR, reason);
+  }
+}
+
+/**
+ * thread をいま読んだコメントが、判定したコメント（ID と本文）と同じかを調べる。
+ * 属性（data-ycf-id / data-ycf-hash）はスキャンでしか更新しないので、本文が差し替わってから
+ * 次のスキャンまでの間は古い値を指す。判定を反映する前は属性ではなく DOM を読み直して比べる。
+ * @param {Element} thread ytd-comment-thread-renderer
+ * @param {string} id 判定したコメントの ID
+ * @param {string} judgedHash 判定した本文のハッシュ
+ * @returns {'same'|'text-changed'|'other'} 'text-changed' は同じ ID で本文だけが違う、'other' は別のコメントか読めない
+ */
+function compareWithJudged(thread, id, judgedHash) {
+  let extracted;
+  try {
+    extracted = extractComment(thread);
+  } catch {
+    return 'other';
+  }
+  if ('unreadable' in extracted || extracted.id !== id) return 'other';
+  return extracted.textHash === judgedHash ? 'same' : 'text-changed';
+}
+
+/**
+ * 変化の通知の対象（要素かテキストノード）から、それを含むいちばん内側の thread を返す。
+ * @param {any} target MutationRecord の target
+ * @returns {Element|null}
+ */
+function threadOfTarget(target) {
+  const element = target?.nodeType === 1 ? target : target?.parentElement;
+  return typeof element?.closest === 'function' ? element.closest(THREAD_TAG) : null;
+}
+
+/**
+ * @typedef {object} ThreadProcessor
+ * @property {(threads: Iterable<Element>) => { id: string, text: string }[]} processThreads
+ *   thread を文書順に判定して表示状態を反映し、AI の順番待ちに入れるコメントを返す。
+ *   隠したスレッドの中は飛ばし、ID と本文が前回と同じで表示か非表示に確定済みのものも飛ばす。
+ *   ID か本文が変わっていたら（Polymer の要素の再利用）全文表示の固定を外して判定し直す。
+ *   返す順は文書順で、前に AI の判定が得られなかったコメントは新しいコメントの後に回す
+ * @property {(threads: Iterable<Element>, id: string, verdict: { hide: boolean, category: string|null }, item: { id: string, text: string }) => { needsRescan: boolean }} applyVerdict
+ *   AI の判定を、判定したコメントと一致する thread に反映する
+ * @property {(threads: Iterable<Element>, id: string, item: { id: string, text: string }) => { needsRescan: boolean }} applyPending
+ *   AI の判定が得られなかったことを、判定したコメントと一致する thread に反映する
+ * @property {(threads: Iterable<Element>) => import('./decide.js').StateCounts} countThreads
+ *   件数バーの件数を集計する
+ * @property {(targets: Iterable<any>) => void} revalidate
+ *   変化した要素を含む thread について、表示中のコメントが判定したものと同じかを同期で確かめ、
+ *   違えば判定前（CSS で隠れる状態）に戻す
+ */
+
+/**
+ * thread の判定と表示状態の反映を作る。
+ * @param {object} options
+ * @param {import('./rules.js').CompiledRules} options.rules compileRules の結果
+ * @param {{ get: (id: string, textHash: string) => ({ hide: boolean, category: string|null }|null), set: (id: string, textHash: string, verdict: { hide: boolean, category: string|null }) => void }} options.cache
+ *   AI の判定のキャッシュ
+ * @param {() => import('./decide.js').AiMode} options.getAiMode AI 判定の状態
+ * @param {(...args: unknown[]) => void} [options.debugLog] 判定の経過を出す（本文は渡さない）
+ * @returns {ThreadProcessor}
+ */
+function createThreadProcessor({ rules, cache, getAiMode, debugLog = () => {} }) {
+  /**
+   * 1 つの thread を判定して表示状態を反映する。順番待ちに入れるものは fresh か retries に積む。
+   * @param {Element} thread ytd-comment-thread-renderer
+   * @param {import('./decide.js').AiMode} aiMode AI 判定の状態
+   * @param {{ id: string, text: string }[]} fresh 新しく判定するもの
+   * @param {{ id: string, text: string }[]} retries 前に AI の判定が得られなかったもの
+   */
+  function processOne(thread, aiMode, fresh, retries) {
+    if (isInsideHiddenThread(thread)) return;
+    const extracted = extractComment(thread);
+    if ('unreadable' in extracted) {
+      if (thread.hasAttribute(ID_ATTR)) {
+        thread.removeAttribute(ID_ATTR);
+        thread.removeAttribute(HASH_ATTR);
+        thread.removeAttribute(EXPANDED_ATTR);
+      }
+      if (thread.getAttribute(REASON_ATTR) !== 'unreadable') debugLog('読めないコメント', extracted.unreadable);
+      applyThreadState(thread, 'pending', 'unreadable');
+      return;
+    }
+
+    const prevState = thread.getAttribute(STATE_ATTR);
+    const same = thread.getAttribute(ID_ATTR) === extracted.id && thread.getAttribute(HASH_ATTR) === extracted.textHash;
+    if (same && (prevState === 'shown' || prevState === 'hidden')) return;
+    if (!same) {
+      thread.setAttribute(ID_ATTR, extracted.id);
+      thread.setAttribute(HASH_ATTR, extracted.textHash);
+      thread.removeAttribute(EXPANDED_ATTR);
+      // 投稿者を読めないと NG ユーザが効かない（表示のまま通る）。工程 3 で取得元の変化に気づけるよう記録する
+      if (extracted.author.handle === null && extracted.author.channelId === null) {
+        debugLog('投稿者を読めないコメント', extracted.id);
+      }
+    }
+    const aiUnresolved = same && thread.getAttribute(REASON_ATTR) === 'ai-unresolved';
+
+    const ruleResult = judgeByRules(extracted, rules);
+    const needsCache =
+      ruleResult.reason === null && extracted.text !== '' && aiMode !== 'disabled' && aiMode !== 'failed';
+    const cached = needsCache ? cache.get(extracted.id, extracted.textHash) : null;
+    const decision = decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved });
+    applyThreadState(thread, decision.state, decision.reason);
+    if (decision.state !== 'pending' || !same) {
+      debugLog('判定', extracted.id, decision.state, decision.reason ?? '', ruleResult.detail ?? '');
+    }
+    if (decision.enqueue) {
+      (aiUnresolved ? retries : fresh).push({ id: extracted.id, text: extracted.text });
+    }
+  }
+
+  return {
+    processThreads(threads) {
+      const aiMode = getAiMode();
+      /** @type {{ id: string, text: string }[]} */
+      const fresh = [];
+      /** @type {{ id: string, text: string }[]} */
+      const retries = [];
+
+      for (const thread of threads) {
+        try {
+          processOne(thread, aiMode, fresh, retries);
+        } catch (error) {
+          // 1 件の失敗で残りの thread が判定前のまま残らないよう、その thread だけ判定待ちにして続ける
+          debugLog('判定中の例外', error);
+          applyThreadState(thread, 'pending', 'unreadable');
+        }
+      }
+      return [...fresh, ...retries];
+    },
+
+    applyVerdict(threads, id, verdict, item) {
+      const judgedHash = hashString(item.text);
+      let needsRescan = false;
+      let textChanged = false;
+      for (const thread of threads) {
+        if (thread.getAttribute(ID_ATTR) !== id) continue;
+        const comparison = compareWithJudged(thread, id, judgedHash);
+        if (comparison !== 'same') {
+          // 判定中に本文が変わったか、要素が別のコメントに使い回された。いまの本文はスキャンで判定し直す
+          needsRescan = true;
+          if (comparison === 'text-changed') textChanged = true;
+          continue;
+        }
+        if (thread.getAttribute(STATE_ATTR) !== 'pending') continue;
+        if (verdict.hide) applyThreadState(thread, 'hidden', 'ai');
+        else applyThreadState(thread, 'shown', undefined);
+        debugLog('AI の判定', id, verdict.hide ? `hidden(${verdict.category})` : 'shown');
+      }
+      // 本文が変わったコメントの判定は保存しない（ID ごとの保存枠を古い本文の判定で埋めないため）。
+      // 該当する thread が DOM に無いときは保存する（本文のハッシュと組で保存するので取り違えない）
+      if (!textChanged) cache.set(id, judgedHash, verdict);
+      return { needsRescan };
+    },
+
+    applyPending(threads, id, item) {
+      const judgedHash = hashString(item.text);
+      let needsRescan = false;
+      for (const thread of threads) {
+        if (thread.getAttribute(ID_ATTR) !== id) continue;
+        if (compareWithJudged(thread, id, judgedHash) !== 'same') {
+          // 順番待ちは ID で重複を除くので、判定中に変わった本文は入れ直されていない。スキャンで入れ直す
+          needsRescan = true;
+          continue;
+        }
+        if (thread.getAttribute(STATE_ATTR) !== 'pending') continue;
+        applyThreadState(thread, 'pending', 'ai-unresolved');
+        debugLog('AI の判定待ち', id);
+      }
+      return { needsRescan };
+    },
+
+    countThreads(threads) {
+      const records = [];
+      for (const thread of threads) {
+        if (isInsideHiddenThread(thread)) continue;
+        const state = thread.getAttribute(STATE_ATTR);
+        // 状態の属性がまだ無い thread（判定前・判定前に戻したもの）は CSS で隠れているので、判定中に数える
+        if (state === null) records.push({ state: 'pending', reason: 'awaiting-ai' });
+        else records.push({ state, reason: thread.getAttribute(REASON_ATTR) });
+      }
+      return countStates(records);
+    },
+
+    revalidate(targets) {
+      /** @type {Set<Element>} */
+      const seen = new Set();
+      /** @type {Element[]} */
+      const candidates = [];
+      for (const target of targets) {
+        const thread = threadOfTarget(target);
+        if (thread) candidates.push(thread);
+        // 入れ物ごと差し込まれたとき、通知の target は thread の外なので、中の thread も確かめる
+        if (target?.nodeType === 1 && typeof target.querySelectorAll === 'function') {
+          candidates.push(...target.querySelectorAll(THREAD_TAG));
+        }
+      }
+      for (const thread of candidates) {
+        if (seen.has(thread)) continue;
+        seen.add(thread);
+        if (thread.getAttribute(STATE_ATTR) === null) continue;
+        let extracted;
+        try {
+          extracted = extractComment(thread);
+        } catch {
+          extracted = { unreadable: '例外' };
+        }
+        if ('unreadable' in extracted) {
+          if (thread.getAttribute(REASON_ATTR) === 'unreadable') continue;
+        } else if (
+          thread.getAttribute(ID_ATTR) === extracted.id &&
+          thread.getAttribute(HASH_ATTR) === extracted.textHash
+        ) {
+          continue;
+        }
+        // 判定していないコメントが描画されないよう、次のスキャンを待たずに判定前に戻す。
+        // data-ycf-id / data-ycf-hash は残し、スキャンが変化を見て判定し直す
+        thread.removeAttribute(STATE_ATTR);
+        thread.removeAttribute(REASON_ATTR);
+        thread.removeAttribute(EXPANDED_ATTR);
+        debugLog('表示中のコメントが変わったので判定前に戻す', thread.getAttribute(ID_ATTR) ?? '');
+      }
+    },
+  };
+}
+
+// ---- main.js ----
+/**
+ * @file エントリポイント。DOM の監視・表示状態の反映・件数バー・AI 判定を結線する。
+ */
+
+
+/** GM_setValue に保存するキャッシュのキー */
+const CACHE_STORAGE_KEY = 'aiCache';
+
+/** キャッシュの書き込みをまとめる時間（ミリ秒） */
+const CACHE_SAVE_DELAY_MS = 2000;
+
+/** DOM の変化を受けてからスキャンするまでの時間（ミリ秒）。連続する変化を 1 回にまとめる */
+const SCAN_DELAY_MS = 50;
+
+/**
+ * 判定の経過を console に出す（DEBUG のときだけ）。本文は出さない。
+ * @param {...unknown} args 出す値
+ */
+function debugLog(...args) {
+  if (DEBUG) console.debug('[youtube-comment-filter]', ...args);
+}
+
+/**
+ * style 要素を差し込む。document-start では head が無いことがあるので html 要素の直下に入れる。
+ * @param {Document} doc document
+ */
+function injectStyles(doc) {
+  if (doc.getElementById(STYLE_ID)) return;
+  const style = doc.createElement('style');
+  style.id = STYLE_ID;
+  style.textContent = buildStyles();
+  (doc.head ?? doc.documentElement).appendChild(style);
+}
+
+/**
+ * GM_getValue / GM_setValue を使うキャッシュの保存先を作る。使えない環境では保存しない。
+ * @returns {import('./cache.js').AiCacheStorage}
+ */
+function createGmStorage() {
+  return {
+    load() {
+      return typeof GM_getValue === 'function' ? GM_getValue(CACHE_STORAGE_KEY) : undefined;
+    },
+    save(value) {
+      if (typeof GM_setValue === 'function') GM_setValue(CACHE_STORAGE_KEY, value);
+    },
+  };
+}
+
+/**
+ * ユーザスクリプトの起動処理。ビルドが IIFE の最後でこの関数を呼ぶ。
+ */
+function main() {
+  const doc = document;
+  injectStyles(doc);
+  updateWatchAttr();
+  const navigation = createNavigationState(location.href);
+
+  const rules = compileRules({ ngUsers: NG_USERS, ngWords: NG_WORDS });
+  for (const warning of rules.warnings) console.warn('[youtube-comment-filter]', warning);
+
+  const cache = createAiCache({
+    maxEntries: AI_CACHE_MAX_ENTRIES,
+    version: promptVersion(AI_CATEGORIES),
+    storage: createGmStorage(),
+    schedule(fn) {
+      const timer = setTimeout(fn, CACHE_SAVE_DELAY_MS);
+      return () => clearTimeout(timer);
+    },
+  });
+
+  /** @type {Element|null} 監視中のコメント欄 */
+  let commentsEl = null;
+  /** @type {MutationObserver|null} */
+  let commentsObserver = null;
+  /** @type {MutationObserver|null} コメント欄の出現を待つ監視 */
+  let documentObserver = null;
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let scanTimer = null;
+
+  const lm = createLanguageModelController({
+    categories: AI_CATEGORIES,
+    enabled: AI_ENABLED,
+    onStateChange(aiState) {
+      debugLog('AI の状態', aiState);
+      // AI が使えなくなったら判定中のコメントを表示に戻すため、状態が変わるたびにスキャンし直す
+      scheduleScan();
+      renderBar();
+    },
+  });
+
+  const processor = createThreadProcessor({
+    rules,
+    cache,
+    getAiMode: () => lm.getState().mode,
+    debugLog,
+  });
+
+  const queue = createAiQueue({
+    cloneSession: () => lm.cloneSession(),
+    batchSize: AI_BATCH_SIZE,
+    timeoutMs: AI_TIMEOUT_MS,
+    maxChars: AI_MAX_CHARS,
+    categories: AI_CATEGORIES,
+    onVerdict(id, verdict, item) {
+      const { needsRescan } = processor.applyVerdict(currentThreads(), id, verdict, item);
+      if (needsRescan) scheduleScan();
+      renderBar();
+    },
+    onPending(id, item) {
+      const { needsRescan } = processor.applyPending(currentThreads(), id, item);
+      if (needsRescan) scheduleScan();
+      renderBar();
+    },
+    onFatal(error) {
+      console.warn('[youtube-comment-filter] AI の判定を止め、ルールだけで判定します', error);
+      lm.markFailed(error);
+      scheduleScan();
+      renderBar();
+    },
+  });
+
+  const bar = createCountBar({
+    doc,
+    onToggle() {
+      // ユーザー操作の有効期限が切れないよう、await を挟まずに最初に呼ぶ
+      lm.activate();
+      if (doc.documentElement.hasAttribute(OPEN_ATTR)) doc.documentElement.removeAttribute(OPEN_ATTR);
+      else doc.documentElement.setAttribute(OPEN_ATTR, '');
+      renderBar();
+    },
+  });
+
+  /**
+   * 監視中のコメント欄の中の thread を文書順に返す。
+   * @returns {Element[]}
+   */
+  function currentThreads() {
+    return commentsEl ? Array.from(commentsEl.querySelectorAll(THREAD_TAG)) : [];
+  }
+
+  /** 動画ページか */
+  function isWatchPage() {
+    return location.pathname === WATCH_PATHNAME;
+  }
+
+  /** 動画ページにいる間だけ html に WATCH_ATTR を付ける（CSS が対象のコメント欄を決めるのに使う） */
+  function updateWatchAttr() {
+    doc.documentElement.toggleAttribute(WATCH_ATTR, location.pathname === WATCH_PATHNAME);
+  }
+
+  /** 件数バーを更新する。隠したスレッドの中のコメントは数えない。 */
+  function renderBar() {
+    bar.update({
+      open: doc.documentElement.hasAttribute(OPEN_ATTR),
+      countText: buildCountText(processor.countThreads(currentThreads())),
+      statusText: buildStatusText(lm.getState()),
+      visible: isWatchPage() && commentsEl !== null,
+    });
+  }
+
+  /**
+   * コメント欄の thread を判定して表示状態を反映する（規則は scanner.js の processThreads）。
+   * 遷移中は AI の順番待ちに入れない。
+   */
+  function scan() {
+    scanTimer = null;
+    if (!commentsEl || !isWatchPage()) {
+      renderBar();
+      return;
+    }
+    const startedAt = DEBUG ? performance.now() : 0;
+    const threads = currentThreads();
+    const items = processor.processThreads(threads);
+    // 遷移中は入れない。判定中のまま残った thread は、遷移の完了後のスキャンで入れる
+    if (items.length > 0 && navigation.canEnqueue()) queue.enqueue(items);
+    renderBar();
+    // 工程 3 でスキャンの所要時間を実ページで測るための記録
+    if (DEBUG) debugLog('スキャン', threads.length, '件', `${(performance.now() - startedAt).toFixed(1)}ms`);
+  }
+
+  /** スキャンを予約する。予約済みなら重ねない。 */
+  function scheduleScan() {
+    if (scanTimer !== null) return;
+    scanTimer = setTimeout(scan, SCAN_DELAY_MS);
+  }
+
+  /**
+   * 動画ページのコメント欄を探して監視し、件数バーを差し込む。要素が作り直されていたら付け直す。
+   * まだ無ければ document を監視して出現を待つ。
+   */
+  function attach() {
+    updateWatchAttr();
+    if (!isWatchPage()) {
+      // 動画ページ以外では document 全体やコメント欄の監視を残さない
+      documentObserver?.disconnect();
+      documentObserver = null;
+      commentsObserver?.disconnect();
+      commentsObserver = null;
+      commentsEl = null;
+      renderBar();
+      return;
+    }
+    // ytd-watch-flexy は未確認なので、外れたときは確認済みの ytd-comments#comments だけで探す
+    const found = doc.querySelector(WATCH_COMMENTS_SELECTOR) ?? doc.querySelector(COMMENTS_SELECTOR);
+    if (found && found !== commentsEl) {
+      commentsObserver?.disconnect();
+      commentsEl = found;
+      commentsObserver = new MutationObserver(onCommentsMutation);
+      // 自分が書き換える data-ycf-* 属性で再スキャンが回り続けないよう、attributes は監視しない
+      commentsObserver.observe(found, { childList: true, subtree: true, characterData: true });
+    }
+    if (commentsEl && !commentsEl.isConnected) {
+      commentsObserver?.disconnect();
+      commentsObserver = null;
+      commentsEl = null;
+    }
+    if (commentsEl) {
+      bar.attach(commentsEl);
+      documentObserver?.disconnect();
+      documentObserver = null;
+    } else if (!documentObserver) {
+      let pending = false;
+      documentObserver = new MutationObserver(() => {
+        if (pending) return;
+        pending = true;
+        setTimeout(() => {
+          pending = false;
+          attach();
+        }, SCAN_DELAY_MS);
+      });
+      documentObserver.observe(doc.documentElement, { childList: true, subtree: true });
+    }
+    scheduleScan();
+  }
+
+  /**
+   * コメント欄の変化。MutationObserver のコールバックは描画より前に走るので、ここで表示中のコメントが
+   * 判定したものと同じかを同期で確かめ、違えば判定前に戻す（要素の使い回しや本文の遅れた描画で、
+   * 判定していない本文が 1 フレームでも見えないようにするため）。重い判定と順番待ちへの投入はスキャンに任せる。
+   * @param {MutationRecord[]} records 変化
+   */
+  function onCommentsMutation(records) {
+    // 差し込まれた要素も渡す。target は差し込み先の親なので、差し込まれた thread は target からは見つからない
+    processor.revalidate(records.flatMap((record) => [record.target, ...record.addedNodes]));
+    scheduleScan();
+  }
+
+  /**
+   * 段階表示のクリック。本文（thread の直下の #comment-container 内の ytd-expander#expander）のクリックで
+   * 全文表示の固定を切り替える。リンク・ボタン上と、文字列の選択中は反応しない。
+   * @param {MouseEvent} event クリック
+   */
+  function onDocumentClick(event) {
+    const target = /** @type {any} */ (event.target);
+    if (!target || typeof target.closest !== 'function') return;
+    const expander = target.closest(EXPANDER_SELECTOR);
+    if (!expander) return;
+    const interactive = target.closest(INTERACTIVE_SELECTOR);
+    if (interactive && expander.contains(interactive)) return;
+    const selection = doc.getSelection?.();
+    if (selection && !selection.isCollapsed && selection.toString() !== '') return;
+    // 返信の本文のクリックで親を切り替えないよう、いちばん内側の thread の直下の #comment-container の中かを確かめる
+    const thread = expander.closest(THREAD_TAG);
+    const container = thread ? directChildById(thread, COMMENT_CONTAINER_ID) : null;
+    if (!thread || !container || !container.contains(expander)) return;
+    if (thread.getAttribute(STATE_ATTR) !== 'shown' || !commentsEl || !commentsEl.contains(thread)) return;
+    thread.toggleAttribute(EXPANDED_ATTR);
+  }
+
+  doc.addEventListener('click', onDocumentClick);
+
+  doc.addEventListener(NAVIGATE_START_EVENT, () => {
+    // 完了までは順番待ちに入れない（DOM に残る前の動画の thread を入れ直さないため）
+    navigation.start();
+  });
+  doc.addEventListener(NAVIGATE_FINISH_EVENT, () => {
+    // 別の動画へ移ったときだけ、前の動画の判定を止めてコメント欄を閉じた状態に戻す。
+    // 同じ動画の中の遷移（時刻や lc= 付きの URL）では、読んでいる途中の欄を閉じない
+    if (navigation.finish(location.href).videoChanged) {
+      queue.reset();
+      doc.documentElement.removeAttribute(OPEN_ATTR);
+    }
+    attach();
+    renderBar();
+  });
+
+  const flushCache = () => cache.flush();
+  window.addEventListener('pagehide', flushCache);
+  doc.addEventListener('visibilitychange', () => {
+    if (doc.visibilityState === 'hidden') flushCache();
+  });
+
+  void lm.init();
+  if (doc.readyState === 'loading') {
+    doc.addEventListener('DOMContentLoaded', attach, { once: true });
+  } else {
+    attach();
+  }
+}
 
 main();
 })();
