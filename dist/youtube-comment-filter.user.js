@@ -89,6 +89,7 @@ const AI_CATEGORIES = [
  * 2 以上のとき、まとめた判定で隠すとされたコメントは 1 件ずつ判定し直してから隠す（src/queue.js の createAiQueue）。
  * そのぶん隠すコメントが多いほど判定に時間がかかる。
  * 隠さないとされたコメントは判定し直さないので、同じバッチの他のコメントの指示で表示にされうる。
+ * 変更すると過去の判定結果のキャッシュは使われなくなり、判定し直す（方式を比べられるようにするため）。
  * @type {number}
  */
 const AI_BATCH_SIZE = 1;
@@ -495,6 +496,18 @@ function buildInitialPrompts(categories) {
  */
 function promptVersion(categories) {
   return hashString(JSON.stringify({ initialPrompts: buildInitialPrompts(categories), categories }));
+}
+
+/**
+ * AI の判定のキャッシュのバージョン。プロンプトとカテゴリに加えて AI_BATCH_SIZE も含める。
+ * まとめた判定は同じバッチの他のコメントの影響を受けるので、件数を変えたら保存済みの判定を使わずに判定し直す
+ * （方式を比べられるようにし、前の方式の誤判定を残さないため）。
+ * @param {{ name: string, description: string }[]} categories AI_CATEGORIES
+ * @param {number} batchSize AI_BATCH_SIZE
+ * @returns {string}
+ */
+function cacheVersion(categories, batchSize) {
+  return `${promptVersion(categories)}:batch${batchSize}`;
 }
 
 /**
@@ -2307,7 +2320,7 @@ function main() {
 
   const cache = createAiCache({
     maxEntries: AI_CACHE_MAX_ENTRIES,
-    version: promptVersion(AI_CATEGORIES),
+    version: cacheVersion(AI_CATEGORIES, AI_BATCH_SIZE),
     storage: createGmStorage(),
     schedule(fn) {
       const timer = setTimeout(fn, CACHE_SAVE_DELAY_MS);

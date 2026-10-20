@@ -85,6 +85,18 @@ export function promptVersion(categories) {
 }
 
 /**
+ * AI の判定のキャッシュのバージョン。プロンプトとカテゴリに加えて AI_BATCH_SIZE も含める。
+ * まとめた判定は同じバッチの他のコメントの影響を受けるので、件数を変えたら保存済みの判定を使わずに判定し直す
+ * （方式を比べられるようにし、前の方式の誤判定を残さないため）。
+ * @param {{ name: string, description: string }[]} categories AI_CATEGORIES
+ * @param {number} batchSize AI_BATCH_SIZE
+ * @returns {string}
+ */
+export function cacheVersion(categories, batchSize) {
+  return `${promptVersion(categories)}:batch${batchSize}`;
+}
+
+/**
  * prompt の responseConstraint に渡す JSON Schema を組み立てる。
  * category の null は type の配列と enum の両方に含める（この形で通ることを実測した。docs/spike.md）。
  * @param {{ name: string }[]} categories AI_CATEGORIES

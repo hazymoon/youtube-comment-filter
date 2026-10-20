@@ -2,7 +2,7 @@
  * @file エントリポイント。DOM の監視・表示状態の反映・件数バー・AI 判定を結線する。
  */
 
-import { promptVersion } from './ai.js';
+import { cacheVersion } from './ai.js';
 import { createAiCache } from './cache.js';
 import {
   AI_BATCH_SIZE,
@@ -100,7 +100,7 @@ export function main() {
 
   const cache = createAiCache({
     maxEntries: AI_CACHE_MAX_ENTRIES,
-    version: promptVersion(AI_CATEGORIES),
+    version: cacheVersion(AI_CATEGORIES, AI_BATCH_SIZE),
     storage: createGmStorage(),
     schedule(fn) {
       const timer = setTimeout(fn, CACHE_SAVE_DELAY_MS);
