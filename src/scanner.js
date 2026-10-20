@@ -9,6 +9,9 @@ import { hashString } from './hash.js';
 import { judgeByRules } from './rules.js';
 import { EXPANDED_ATTR, HASH_ATTR, ID_ATTR, REASON_ATTR, STATE_ATTR, THREAD_TAG } from './selectors.js';
 
+/** AI が隠したコメントを DEBUG で出すときの本文の文字数の上限。誤判定かを見分けられる程度に短くする */
+const AI_HIDDEN_EXCERPT_CHARS = 60;
+
 /**
  * thread の表示状態の属性を書き換える。変わらない属性には触れない。
  * @param {Element} thread ytd-comment-thread-renderer
@@ -65,8 +68,8 @@ function threadOfTarget(target) {
  *   AI の判定を、判定したコメントと一致する thread に反映する
  * @property {(threads: Iterable<Element>, id: string, item: { id: string, text: string }) => { needsRescan: boolean }} applyPending
  *   AI の判定が得られなかったことを、判定したコメントと一致する thread に反映する
- * @property {(threads: Iterable<Element>) => import('./decide.js').StateCounts} countThreads
- *   件数バーの件数を集計する
+ * @property {(threads: Iterable<Element>) => import('./decide.js').StateCounts & { total: number }} countThreads
+ *   件数バーの件数を集計する。total は集計したコメントの数（隠したスレッドの中の返信は数えない）
  * @property {(targets: Iterable<any>) => void} revalidate
  *   変化した要素を含む thread について、表示中のコメントが判定したものと同じかを同期で確かめ、
  *   違えば判定前（CSS で隠れる状態）に戻す
@@ -79,10 +82,23 @@ function threadOfTarget(target) {
  * @param {{ get: (id: string, textHash: string) => ({ hide: boolean, category: string|null }|null), set: (id: string, textHash: string, verdict: { hide: boolean, category: string|null }) => void }} options.cache
  *   AI の判定のキャッシュ
  * @param {() => import('./decide.js').AiMode} options.getAiMode AI 判定の状態
- * @param {(...args: unknown[]) => void} [options.debugLog] 判定の経過を出す（本文は渡さない）
+ * @param {(...args: unknown[]) => void} [options.debugLog] 判定の経過を出す。本文は、AI が隠したコメントの冒頭
+ *   （AI_HIDDEN_EXCERPT_CHARS 文字まで）だけを渡す
  * @returns {ThreadProcessor}
  */
 export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () => {} }) {
+  /**
+   * AI が隠したコメントのカテゴリと本文の冒頭を出す。隠したコメントを画面で確かめる手段が無いので、
+   * AI の誤判定を利用者が確かめられるようにするため（DEBUG のときだけ出る。保存はしない）。
+   * @param {string|null} category カテゴリ
+   * @param {string} text 本文
+   */
+  function logAiHidden(category, text) {
+    const chars = [...text];
+    const excerpt = chars.length > AI_HIDDEN_EXCERPT_CHARS ? `${chars.slice(0, AI_HIDDEN_EXCERPT_CHARS).join('')}…` : text;
+    debugLog('AI が隠したコメント', category, excerpt);
+  }
+
   /**
    * 1 つの thread を判定して表示状態を反映する。順番待ちに入れるものは fresh か retries に積む。
    * @param {Element} thread ytd-comment-thread-renderer
@@ -127,6 +143,7 @@ export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () =
     if (decision.state !== 'pending' || !same) {
       debugLog('判定', extracted.id, decision.state, decision.reason ?? '', ruleResult.detail ?? '');
     }
+    if (decision.state === 'hidden' && decision.reason === 'ai') logAiHidden(cached?.category ?? null, extracted.text);
     if (decision.enqueue) {
       (aiUnresolved ? retries : fresh).push({ id: extracted.id, text: extracted.text });
     }
@@ -169,6 +186,7 @@ export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () =
         if (verdict.hide) applyThreadState(thread, 'hidden', 'ai');
         else applyThreadState(thread, 'shown', undefined);
         debugLog('AI の判定', id, verdict.hide ? `hidden(${verdict.category})` : 'shown');
+        if (verdict.hide) logAiHidden(verdict.category, item.text);
       }
       // 本文が変わったコメントの判定は保存しない（ID ごとの保存枠を古い本文の判定で埋めないため）。
       // 該当する thread が DOM に無いときは保存する（本文のハッシュと組で保存するので取り違えない）
@@ -202,7 +220,7 @@ export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () =
         if (state === null) records.push({ state: 'pending', reason: 'awaiting-ai' });
         else records.push({ state, reason: thread.getAttribute(REASON_ATTR) });
       }
-      return countStates(records);
+      return { ...countStates(records), total: records.length };
     },
 
     revalidate(targets) {

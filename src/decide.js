@@ -87,13 +87,18 @@ export function countStates(records) {
 }
 
 /**
- * 件数バーの件数の文字列を組み立てる。判定中のものがあるときだけ末尾に件数を添える。
- * @param {StateCounts} counts countStates の結果
+ * 件数バーの件数の文字列を組み立てる。読み込み済みの総数と非表示の合計を先頭に置き、内訳を括弧に入れる
+ * （隠した割合が多い動画はコメント欄を開かない、と利用者が判断できるようにするため）。
+ * 判定待ちは隠しているので非表示の合計に含める。判定中のものがあるときだけ末尾に件数を添える。
+ * @param {StateCounts & { total: number }} counts countStates の結果と、集計したコメントの数
  * @returns {string}
  */
 export function buildCountText(counts) {
-  const base = `NG ユーザ ${counts.ngUser} 件 / NG ワード ${counts.ngWord} 件 / AI ${counts.ai} 件 / 判定待ち ${counts.pending} 件 非表示`;
-  return counts.judging > 0 ? `${base}（判定中 ${counts.judging} 件）` : base;
+  const hidden = counts.ngUser + counts.ngWord + counts.ai + counts.pending;
+  const base =
+    `読み込み済み ${counts.total} 件中 ${hidden} 件を非表示` +
+    `（NG ユーザ ${counts.ngUser} / NG ワード ${counts.ngWord} / AI ${counts.ai} / 判定待ち ${counts.pending}）`;
+  return counts.judging > 0 ? `${base}・判定中 ${counts.judging} 件` : base;
 }
 
 /**

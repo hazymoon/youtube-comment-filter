@@ -90,12 +90,12 @@ test('countStates は理由ごとに数え、awaiting-ai は判定中、unreadab
 
 test('件数の文字列は判定中があるときだけ判定中の件数を添える', () => {
   assert.equal(
-    buildCountText({ ngUser: 1, ngWord: 2, ai: 3, pending: 4, judging: 0 }),
-    'NG ユーザ 1 件 / NG ワード 2 件 / AI 3 件 / 判定待ち 4 件 非表示',
+    buildCountText({ total: 12, ngUser: 1, ngWord: 2, ai: 3, pending: 4, judging: 0 }),
+    '読み込み済み 12 件中 10 件を非表示（NG ユーザ 1 / NG ワード 2 / AI 3 / 判定待ち 4）',
   );
   assert.equal(
-    buildCountText({ ngUser: 0, ngWord: 0, ai: 0, pending: 0, judging: 5 }),
-    'NG ユーザ 0 件 / NG ワード 0 件 / AI 0 件 / 判定待ち 0 件 非表示（判定中 5 件）',
+    buildCountText({ total: 5, ngUser: 0, ngWord: 0, ai: 0, pending: 0, judging: 5 }),
+    '読み込み済み 5 件中 0 件を非表示（NG ユーザ 0 / NG ワード 0 / AI 0 / 判定待ち 0）・判定中 5 件',
   );
 });
 
