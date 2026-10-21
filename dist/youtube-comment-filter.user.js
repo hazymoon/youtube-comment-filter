@@ -3,6 +3,10 @@
 // @namespace   https://github.com/hazymoon/youtube-comment-filter
 // @version     0.1.0
 // @description YouTube のコメント欄を、NG ユーザ・NG ワードと端末内の AI（Chrome の Prompt API）の判定で絞り込みます
+// @homepageURL https://github.com/hazymoon/youtube-comment-filter
+// @supportURL  https://github.com/hazymoon/youtube-comment-filter/issues
+// @downloadURL https://github.com/hazymoon/youtube-comment-filter/releases/latest/download/youtube-comment-filter.user.js
+// @updateURL   https://github.com/hazymoon/youtube-comment-filter/releases/latest/download/youtube-comment-filter.user.js
 // @match       https://www.youtube.com/*
 // @run-at      document-start
 // @inject-into page
