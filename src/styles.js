@@ -29,6 +29,59 @@ const HOVER_LINES = 4;
 const LINE_HEIGHT_REM = 2;
 
 /**
+ * 件数バーの色。YouTube の色変数を参照し、変数が無いときはライト・ダークそれぞれの既定値に落とす。
+ * YouTube は色変数の名前を --yt-spec-* から --yt-sys-color-baseline--* へ変えており、旧名は未定義になる。
+ * 名前がまた変わってもダークモードで黒文字にならないよう、最後の既定値はテーマごとに持つ。
+ * @type {Record<string, { vars: string[], light: string, dark: string }>}
+ */
+const BAR_COLORS = {
+  text: { vars: ['--yt-sys-color-baseline--text-primary', '--yt-spec-text-primary'], light: '#0f0f0f', dark: '#f1f1f1' },
+  subtext: { vars: ['--yt-sys-color-baseline--text-secondary', '--yt-spec-text-secondary'], light: '#606060', dark: '#aaa' },
+  background: {
+    vars: ['--yt-sys-color-baseline--tonal-background', '--yt-spec-badge-chip-background'],
+    light: 'rgba(0, 0, 0, 0.05)',
+    dark: 'rgba(255, 255, 255, 0.1)',
+  },
+  buttonHover: {
+    vars: ['--yt-sys-color-baseline--mono-tonal-hover', '--yt-spec-mono-tonal-hover'],
+    light: 'rgba(0, 0, 0, 0.1)',
+    dark: 'rgba(255, 255, 255, 0.2)',
+  },
+};
+
+/**
+ * 色変数を順に参照し、どれも無ければ既定値を使う var() を作る。
+ * @param {keyof typeof BAR_COLORS} name 色の名前
+ * @param {'light' | 'dark'} theme 既定値のテーマ
+ * @returns {string}
+ */
+function barColor(name, theme) {
+  const { vars, [theme]: fallback } = BAR_COLORS[name];
+  return vars.reduceRight((inner, v) => `var(${v}, ${inner})`, fallback);
+}
+
+/**
+ * ダークモードの件数バーの色の規則。YouTube は html の dark 属性でダークモードを示す。
+ * @returns {string}
+ */
+function darkBarColorRules() {
+  return `html[dark] #${BAR_ID} {
+  background: ${barColor('background', 'dark')};
+  color: ${barColor('text', 'dark')};
+}
+html[dark] #${BAR_ID} button {
+  background: ${barColor('background', 'dark')};
+  color: ${barColor('text', 'dark')};
+}
+html[dark] #${BAR_ID} button:hover {
+  background: ${barColor('buttonHover', 'dark')};
+}
+html[dark] #${BAR_ID} .ycf-status {
+  color: ${barColor('subtext', 'dark')};
+}`;
+}
+
+/**
  * 対象のコメント欄を指すセレクタの組み立て方。html 要素への条件（開閉）を足せる形で返す。
  * - WATCH_ATTR: 動画ページかを JS が html の属性で宣言する。確認済みのセレクタ（COMMENTS_SELECTOR）だけに依存する
  * - WATCH_COMMENTS_SELECTOR: 未確認の ytd-watch-flexy に依存する。属性が付く前の保険として併記する
@@ -208,8 +261,8 @@ ${shownButtons} {
   margin: 24px 0 8px;
   padding: 8px 12px;
   border-radius: 12px;
-  background: var(--yt-spec-badge-chip-background, rgba(0, 0, 0, 0.05));
-  color: var(--yt-spec-text-primary, #0f0f0f);
+  background: ${barColor('background', 'light')};
+  color: ${barColor('text', 'light')};
   font-family: "Roboto", "Arial", sans-serif;
   font-size: 1.4rem;
   line-height: 2rem;
@@ -221,17 +274,19 @@ ${shownButtons} {
   padding: 6px 16px;
   border: none;
   border-radius: 18px;
-  background: var(--yt-spec-additive-background, rgba(0, 0, 0, 0.05));
-  color: var(--yt-spec-text-primary, #0f0f0f);
+  background: ${barColor('background', 'light')};
+  color: ${barColor('text', 'light')};
   font: inherit;
   font-weight: 500;
   cursor: pointer;
 }
 #${BAR_ID} button:hover {
-  background: var(--yt-spec-mono-tonal-hover, rgba(0, 0, 0, 0.1));
+  background: ${barColor('buttonHover', 'light')};
 }
 #${BAR_ID} .ycf-status {
-  color: var(--yt-spec-text-secondary, #606060);
+  color: ${barColor('subtext', 'light')};
 }
+/* ダークモード: 色変数が無いときの既定値だけを差し替える */
+${darkBarColorRules()}
 `;
 }
