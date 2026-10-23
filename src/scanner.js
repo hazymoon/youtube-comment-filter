@@ -74,7 +74,8 @@ function threadOfTarget(target) {
  *   変化した要素を含む thread について、表示中のコメントが判定したものと同じかを同期で確かめ、
  *   違えば判定前（CSS で隠れる状態）に戻す
  * @property {(rules: import('./rules.js').CompiledRules) => void} setRules
- *   ルールを差し替える。表示か非表示に確定済みのコメントも、次の processThreads で新しいルールで判定し直す
+ *   ルールを差し替える。表示か非表示に確定済みのコメントも、次の processThreads で新しいルールで判定し直す。
+ *   新しいルールに当たらず、状態が AI の判定などルールに依らずに決まっていたものは、その状態を保つ
  */
 
 /**
@@ -100,7 +101,7 @@ export function createThreadProcessor({
   onShown = () => {},
 }) {
   let currentRules = rules;
-  /** ルールを差し替えた回数。thread ごとに、どの版のルールで判定したかを judgedRulesVersion に持つ */
+  /** ルールを差し替えた回数。thread ごとに、判定したときの rulesVersion を judgedRulesVersion に持つ */
   let rulesVersion = 0;
   /** @type {WeakMap<Element, number>} */
   const judgedRulesVersion = new WeakMap();
@@ -115,6 +116,19 @@ export function createThreadProcessor({
     const chars = [...text];
     const excerpt = chars.length > AI_HIDDEN_EXCERPT_CHARS ? `${chars.slice(0, AI_HIDDEN_EXCERPT_CHARS).join('')}…` : text;
     debugLog('AI が隠したコメント', category, excerpt);
+  }
+
+  /**
+   * 確定済みの thread の状態が、ルールにも判定から外す条件にも依らずに決まったものか
+   * （表示で理由が無い、または AI の判定で非表示）。ルールで隠していたものと判定から外していたものは、
+   * 新しいルールで外れたら AI の判定が要るので含めない。
+   * @param {Element} thread ytd-comment-thread-renderer
+   * @returns {boolean}
+   */
+  function keepsVerdictWithoutRules(thread) {
+    const state = thread.getAttribute(STATE_ATTR);
+    const reason = thread.getAttribute(REASON_ATTR);
+    return (state === 'shown' && reason === null) || (state === 'hidden' && reason === 'ai');
   }
 
   /**
@@ -140,7 +154,8 @@ export function createThreadProcessor({
 
     const prevState = thread.getAttribute(STATE_ATTR);
     const same = thread.getAttribute(ID_ATTR) === extracted.id && thread.getAttribute(HASH_ATTR) === extracted.textHash;
-    if (same && (prevState === 'shown' || prevState === 'hidden') && judgedRulesVersion.get(thread) === rulesVersion) return;
+    const settled = same && (prevState === 'shown' || prevState === 'hidden');
+    if (settled && judgedRulesVersion.get(thread) === rulesVersion) return;
     if (!same) {
       thread.setAttribute(ID_ATTR, extracted.id);
       thread.setAttribute(HASH_ATTR, extracted.textHash);
@@ -155,6 +170,12 @@ export function createThreadProcessor({
     const exemption = judgeExemption(extracted, currentRules, exempt);
     /** @type {ReturnType<typeof judgeByRules>} */
     const ruleResult = exemption === null ? judgeByRules(extracted, currentRules) : { reason: null };
+    if (settled && exemption === null && ruleResult.reason === null && keepsVerdictWithoutRules(thread)) {
+      // ルールの差し替えで判定し直したが、新しいルールにも当たらない。AI の判定（表示・非表示）はルールに依らないので
+      // そのまま保つ。キャッシュから消えていると判定待ちに戻って隠れ、AI に送り直すことになるため
+      judgedRulesVersion.set(thread, rulesVersion);
+      return;
+    }
     const needsCache =
       exemption === null &&
       ruleResult.reason === null &&

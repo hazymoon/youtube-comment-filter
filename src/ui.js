@@ -95,3 +95,16 @@ export function ensureBlockButton(viewModel, doc, onClick) {
   });
   header.appendChild(button);
 }
+
+/**
+ * 変化の通知が、NG 登録のボタンを差し込んだだけのものか。
+ * ensureBlockButton の差し込みもコメント欄の監視に届くので、これで再スキャンを回さないよう除くために使う。
+ * @param {{ type: string, addedNodes: ArrayLike<any>, removedNodes: ArrayLike<any> }} record MutationRecord
+ * @returns {boolean}
+ */
+export function isBlockButtonInsertion(record) {
+  if (record.type !== 'childList' || record.removedNodes.length > 0 || record.addedNodes.length === 0) return false;
+  return Array.from(record.addedNodes).every(
+    (node) => node?.nodeType === 1 && node.classList?.contains?.(BLOCK_BUTTON_CLASS) === true,
+  );
+}

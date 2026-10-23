@@ -6,6 +6,7 @@ import { appendStoredUser } from '../src/settings.js';
 import { AUTHOR_LINK_SELECTOR, BLOCK_BUTTON_CLASS, CONTENT_TEXT_SELECTOR, HEADER_AUTHOR_SELECTOR, REASON_ATTR, STATE_ATTR } from '../src/selectors.js';
 import { buildStyles } from '../src/styles.js';
 import { ensureBlockButton } from '../src/ui.js';
+import { isBlockButtonInsertion } from '../src/ui.js';
 
 // コメントから直接 NG ユーザに登録する（issue #7）
 
@@ -158,4 +159,48 @@ test('AI の判定で表示になった thread を onShown に渡す（スキャ
   processor.applyVerdict([kept, hidden], 'id-@mallory', { hide: true, category: '暴言' }, { id: 'id-@mallory', text: '本文' });
   assert.equal(kept.getAttribute(STATE_ATTR), 'shown');
   assert.deepEqual(shown, [kept], '隠した thread は渡さない');
+});
+
+test('isBlockButtonInsertion は NG 登録のボタンだけを差し込んだ変化を見分ける（自分の差し込みで再スキャンを回さないため）', () => {
+  const button = { nodeType: 1, classList: { contains: (c) => c === BLOCK_BUTTON_CLASS } };
+  const other = { nodeType: 1, classList: { contains: () => false } };
+  const text = { nodeType: 3 };
+  assert.equal(isBlockButtonInsertion({ type: 'childList', addedNodes: [button], removedNodes: [] }), true);
+  assert.equal(isBlockButtonInsertion({ type: 'childList', addedNodes: [button, other], removedNodes: [] }), false);
+  assert.equal(isBlockButtonInsertion({ type: 'childList', addedNodes: [button], removedNodes: [other] }), false);
+  assert.equal(isBlockButtonInsertion({ type: 'childList', addedNodes: [text], removedNodes: [] }), false);
+  assert.equal(isBlockButtonInsertion({ type: 'childList', addedNodes: [], removedNodes: [] }), false);
+  assert.equal(isBlockButtonInsertion({ type: 'characterData', addedNodes: [], removedNodes: [] }), false);
+});
+
+test('setRules の後も、ルールに当たらない確定済みのコメントは AI の判定を引き直さない（キャッシュから消えていても判定待ちに戻さない）', () => {
+  /** @type {Map<string, { hide: boolean, category: string|null }>} */
+  const verdicts = new Map([
+    ['id-@eve', { hide: false, category: null }],
+    ['id-@trent', { hide: true, category: '暴言' }],
+  ]);
+  const processor = createThreadProcessor({
+    rules: compileRules({}),
+    cache: { get: (id) => verdicts.get(id) ?? null, set: () => {} },
+    getAiMode: () => 'ready',
+  });
+  const kept = makeThread('@eve');
+  const aiHidden = makeThread('@trent');
+  const blocked = makeThread('@mallory');
+  verdicts.set('id-@mallory', { hide: false, category: null });
+  processor.processThreads([kept, aiHidden, blocked]);
+  assert.equal(kept.getAttribute(STATE_ATTR), 'shown');
+  assert.equal(aiHidden.getAttribute(STATE_ATTR), 'hidden');
+  assert.equal(blocked.getAttribute(STATE_ATTR), 'shown');
+
+  // キャッシュの上限で AI の判定が消えた後に、NG ユーザを足す
+  verdicts.clear();
+  processor.setRules(compileRules({ ngUsers: ['@mallory'] }));
+  const items = processor.processThreads([kept, aiHidden, blocked]);
+  assert.deepEqual(items, [], 'AI の順番待ちに入れ直さない');
+  assert.equal(kept.getAttribute(STATE_ATTR), 'shown');
+  assert.equal(aiHidden.getAttribute(STATE_ATTR), 'hidden');
+  assert.equal(aiHidden.getAttribute(REASON_ATTR), 'ai');
+  assert.equal(blocked.getAttribute(STATE_ATTR), 'hidden');
+  assert.equal(blocked.getAttribute(REASON_ATTR), 'ngUser');
 });

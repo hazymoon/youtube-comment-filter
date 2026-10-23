@@ -51,7 +51,7 @@ import {
   WATCH_COMMENTS_SELECTOR,
 } from './selectors.js';
 import { buildStyles } from './styles.js';
-import { createCountBar, ensureBlockButton } from './ui.js';
+import { createCountBar, ensureBlockButton, isBlockButtonInsertion } from './ui.js';
 
 /** GM_setValue に保存するキャッシュのキー */
 const CACHE_STORAGE_KEY = 'aiCache';
@@ -360,8 +360,11 @@ export function main() {
    * @param {MutationRecord[]} records 変化
    */
   function onCommentsMutation(records) {
+    // NG 登録のボタンの差し込みは自分の変化なので除く（スキャンが差し込むたびにもう 1 回スキャンが回らないように）
+    const relevant = records.filter((record) => !isBlockButtonInsertion(record));
+    if (relevant.length === 0) return;
     // 差し込まれた要素も渡す。target は差し込み先の親なので、差し込まれた thread は target からは見つからない
-    processor.revalidate(records.flatMap((record) => [record.target, ...record.addedNodes]));
+    processor.revalidate(relevant.flatMap((record) => [record.target, ...record.addedNodes]));
     scheduleScan();
   }
 
