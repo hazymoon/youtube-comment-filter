@@ -141,11 +141,17 @@ export function buildStyles() {
     ),
   );
   const hiddenThread = forEachScope((thread) => [`${thread}[${STATE_ATTR}="hidden"]`]);
-  // NG 登録のボタンは、判定から外したもの以外の表示中のコメントにホバーしたときだけ見せる。
-  // 直下結合子で書き、返信にホバーしたときに親のボタンが出ないようにする
-  const blockButtonShown = forEachScope((thread) => [
-    `${thread}[${STATE_ATTR}="shown"]:not([${REASON_ATTR}="exempt"]) > #${COMMENT_CONTAINER_ID} ${VIEW_MODEL_TAG}:hover .${BLOCK_BUTTON_CLASS}`,
-  ]);
+  // NG 登録のボタンは、判定から外したもの以外の表示中のコメントにホバーしたとき、またはコメント内に
+  // フォーカスがあるときだけ見せる。display:none の要素にはタブで移動できないため、コメント内の要素
+  // （ボタンの前にある投稿者名のリンクなど）にフォーカスが来た時点で見せ、そこからタブでボタンへ進めるようにする。
+  // :focus-within はボタン自身のフォーカスも含むので、ボタンへ移った後も消えない。
+  // 直下結合子で書き、返信にホバー・フォーカスしたときに親のボタンが出ないようにする
+  const blockButtonShown = forEachScope((thread) =>
+    ['hover', 'focus-within'].map(
+      (pseudo) =>
+        `${thread}[${STATE_ATTR}="shown"]:not([${REASON_ATTR}="exempt"]) > #${COMMENT_CONTAINER_ID} ${VIEW_MODEL_TAG}:${pseudo} .${BLOCK_BUTTON_CLASS}`,
+    ),
+  );
 
   const contentOf = (container) => `${container} ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
   const hoverOf = (container) => `${container} ${VIEW_MODEL_TAG}:hover ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
