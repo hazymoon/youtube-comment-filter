@@ -14,6 +14,7 @@ import {
   CONTENT_TEXT_FALLBACK_SELECTOR,
   CONTENT_TEXT_SELECTOR,
   OWNER_BADGE_LINK_SELECTOR,
+  PINNED_BADGE_SELECTOR,
   PUBLISHED_TIME_LINK_SELECTOR,
   REPLIES_RENDERER_TAG,
   STATE_ATTR,
@@ -160,6 +161,30 @@ function readAuthorHandle(viewModel) {
 }
 
 /**
+ * 投稿者が動画のチャンネル所有者か。所有者のコメントにはバッジの a#name が付き、a#author-text は hidden になる。
+ * 要素の使い回しでバッジだけが残った場合に所有者と取り違えないよう、a#author-text が隠れていることも確かめる
+ * （a#author-text が無いときはバッジだけで判断する）。
+ * @param {any} viewModel ytd-comment-view-model
+ * @returns {boolean}
+ */
+function readIsOwner(viewModel) {
+  if (!viewModel?.querySelector?.(OWNER_BADGE_LINK_SELECTOR)) return false;
+  const authorLink = viewModel.querySelector(AUTHOR_LINK_SELECTOR);
+  return !authorLink || authorLink.getAttribute?.('hidden') !== null;
+}
+
+/**
+ * 固定コメントか。固定の印の要素があり、hidden でないときに固定とみなす。
+ * 印のセレクタは未確認（selectors.js の PINNED_BADGE_SELECTOR）。
+ * @param {any} viewModel ytd-comment-view-model
+ * @returns {boolean}
+ */
+function readIsPinned(viewModel) {
+  const badge = viewModel?.querySelector?.(PINNED_BADGE_SELECTOR);
+  return Boolean(badge) && badge.getAttribute?.('hidden') === null;
+}
+
+/**
  * 本文の先頭にあるリンクの href を返す（@返信の宛先の判定に使う）。
  * 本文の最初のリンクについて、本文が（先頭の空白を除いて）そのリンクの文字列で始まるときだけ返す。
  * @param {any} contentEl 本文の要素
@@ -179,8 +204,10 @@ function readLeadingMentionHref(contentEl, rawText) {
  * @property {string} id コメント ID
  * @property {string} text 本文（前後の空白を除く）。画像の絵文字だけの本文などは空文字
  * @property {string} textHash 本文のハッシュ（hashString）
- * @property {{ handle: string|null, channelId: string|null }} author 投稿者
+ * @property {{ handle: string|null, channelId: string|null, isOwner: boolean, isVerified: boolean }} author 投稿者。
+ *   isOwner は動画のチャンネル所有者か、isVerified は認証バッジ付きのチャンネルか
  * @property {boolean} isReply 返信か
+ * @property {boolean} isPinned 固定コメントか（返信は常に false）
  * @property {string|null} leadingMentionHref 本文の先頭にあるリンクの href
  */
 
@@ -201,15 +228,21 @@ export function extractComment(threadEl) {
 
   const rawText = String(contentEl.textContent ?? '');
   const text = rawText.trim();
+  const authorData = viewModel.polymerController?.__data?.commentEntity?.author;
+  const isReply = hasAncestor(threadEl, REPLIES_RENDERER_TAG);
   return {
     id,
     text,
     textHash: hashString(text),
     author: {
       handle: readAuthorHandle(viewModel),
-      channelId: nonEmptyString(viewModel.polymerController?.__data?.commentEntity?.author?.channelId),
+      channelId: nonEmptyString(authorData?.channelId),
+      isOwner: readIsOwner(viewModel),
+      // 未確認（工程 3 で確認）: isVerified は docs/dom-structure.md に記録が無い。channelId と同じ commentEntity.author から読む
+      isVerified: authorData?.isVerified === true,
     },
-    isReply: hasAncestor(threadEl, REPLIES_RENDERER_TAG),
+    isReply,
+    isPinned: !isReply && readIsPinned(viewModel),
     leadingMentionHref: readLeadingMentionHref(contentEl, rawText),
   };
 }

@@ -2,7 +2,7 @@
  * @file 利用者が編集する設定。
  * Violentmonkey のエディタでこのブロックの値を書き換えて保存すると反映される。
  *
- * NG_USERS と NG_WORDS は、Violentmonkey のスクリプトの「値」タブの ngUsers / ngWords にも文字列の配列で書ける。
+ * NG_USERS・NG_WORDS・ALLOW_USERS は、Violentmonkey のスクリプトの「値」タブの ngUsers / ngWords / allowUsers にも文字列の配列で書ける。
  * 値はスクリプトを貼り替えても残るので、こちらに書くとよい（ここに書いた分と合わせて使う）。
  * 正規表現は "/死ね|しね/i" のように / で囲んだ文字列で書く。値の名前は初回の起動で空の配列として作られる。
  */
@@ -36,6 +36,32 @@ export const NG_USERS = [];
  * @type {(string|RegExp)[]}
  */
 export const NG_WORDS = [];
+
+/**
+ * 判定から外して常に表示するユーザ。書式は NG_USERS と同じ。
+ * NG_USERS・NG_WORDS・AI のどの判定よりも優先する（NG_USERS と両方に書くと表示になる）。
+ * Violentmonkey の「値」タブの allowUsers にも書ける。
+ * @type {string[]}
+ */
+export const ALLOW_USERS = [];
+
+/**
+ * 動画のチャンネル所有者のコメントを判定から外して常に表示するか。
+ * @type {boolean}
+ */
+export const EXEMPT_OWNER = true;
+
+/**
+ * 固定コメントを判定から外して常に表示するか。
+ * @type {boolean}
+ */
+export const EXEMPT_PINNED = true;
+
+/**
+ * 認証バッジ付きのチャンネルのコメントを判定から外して常に表示するか。
+ * @type {boolean}
+ */
+export const EXEMPT_VERIFIED = true;
 
 /**
  * 端末内の AI（Chrome の Prompt API）で不快なコメントを判定するか。

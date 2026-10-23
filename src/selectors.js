@@ -51,6 +51,15 @@ export const AUTHOR_LINK_SELECTOR = '#header-author h3 a#author-text';
 /** チャンネル所有者のコメントでの投稿者のリンク（href が /@handle）。確認済み（同上） */
 export const OWNER_BADGE_LINK_SELECTOR = '#author-comment-badge ytd-author-comment-badge-renderer a#name';
 
+/** 投稿者の名前の行。NG 登録のボタンをここに差し込む。確認済み（docs/dom-structure.md「ytd-comment-view-model#comment の中」） */
+export const HEADER_AUTHOR_SELECTOR = '#header-author';
+
+/**
+ * 固定コメントの印。未確認（工程 3 で確認）: docs/dom-structure.md は固定コメントを記録していない。
+ * 旧世代の ytd-comment-renderer の #pinned-comment-badge の中身から置いた。外れても固定コメントを判定するだけで、隠れすぎはしない
+ */
+export const PINNED_BADGE_SELECTOR = 'ytd-pinned-comment-badge-renderer';
+
 /** 投稿日時のリンク（href に lc=<commentId>）。確認済み（同上） */
 export const PUBLISHED_TIME_LINK_SELECTOR = '#published-time-text a';
 
@@ -123,6 +132,9 @@ export const HASH_ATTR = 'data-ycf-hash';
 
 /** thread に付ける。付いている間は本文を全文表示に固定する */
 export const EXPANDED_ATTR = 'data-ycf-expanded';
+
+/** コメントに差し込む NG 登録のボタンの class */
+export const BLOCK_BUTTON_CLASS = 'ycf-block';
 
 /** 件数バーの要素の id */
 export const BAR_ID = 'ycf-bar';

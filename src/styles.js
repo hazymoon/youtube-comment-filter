@@ -5,6 +5,7 @@
 import { PREVIEW_CHARS, REVEAL_DELAY_MS, REVEAL_MS_PER_LINE } from './config.js';
 import {
   BAR_ID,
+  BLOCK_BUTTON_CLASS,
   COMMENT_CONTAINER_ID,
   EXPANDED_ATTR,
   EXPANDER_CONTENT_ID,
@@ -140,6 +141,11 @@ export function buildStyles() {
     ),
   );
   const hiddenThread = forEachScope((thread) => [`${thread}[${STATE_ATTR}="hidden"]`]);
+  // NG 登録のボタンは、判定から外したもの以外の表示中のコメントにホバーしたときだけ見せる。
+  // 直下結合子で書き、返信にホバーしたときに親のボタンが出ないようにする
+  const blockButtonShown = forEachScope((thread) => [
+    `${thread}[${STATE_ATTR}="shown"]:not([${REASON_ATTR}="exempt"]) > #${COMMENT_CONTAINER_ID} ${VIEW_MODEL_TAG}:hover .${BLOCK_BUTTON_CLASS}`,
+  ]);
 
   const contentOf = (container) => `${container} ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
   const hoverOf = (container) => `${container} ${VIEW_MODEL_TAG}:hover ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
@@ -258,6 +264,27 @@ ${expandedContent} {
 }
 ${shownButtons} {
   display: none !important;
+}
+
+/* NG 登録のボタン */
+.${BLOCK_BUTTON_CLASS} {
+  display: none !important;
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: ${barColor('subtext', 'light')};
+  font-family: "Roboto", "Arial", sans-serif;
+  font-size: 1.1rem;
+  line-height: 1.8rem;
+  cursor: pointer;
+}
+html[dark] .${BLOCK_BUTTON_CLASS} {
+  color: ${barColor('subtext', 'dark')};
+}
+${blockButtonShown} {
+  display: inline-block !important;
 }
 
 /* 件数バー */

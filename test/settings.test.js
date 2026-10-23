@@ -16,7 +16,12 @@ test('文字列の配列をそのまま使い、"/…/flags" の形の文字列�
 });
 
 test('値が無ければ空にする', () => {
-  assert.deepEqual(parseStoredSettings({ ngUsers: undefined, ngWords: undefined }), { ngUsers: [], ngWords: [], warnings: [] });
+  assert.deepEqual(parseStoredSettings({ ngUsers: undefined, ngWords: undefined }), {
+    ngUsers: [],
+    ngWords: [],
+    allowUsers: [],
+    warnings: [],
+  });
 });
 
 test('配列でない値と文字列でない要素は捨てて警告する', () => {

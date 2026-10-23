@@ -11,15 +11,25 @@ import {
   AI_ENABLED,
   AI_MAX_CHARS,
   AI_TIMEOUT_MS,
+  ALLOW_USERS,
   DEBUG,
+  EXEMPT_OWNER,
+  EXEMPT_PINNED,
+  EXEMPT_VERIFIED,
   NG_USERS,
   NG_WORDS,
 } from './config.js';
 import { buildCountText, buildStatusText } from './decide.js';
-import { directChildById } from './dom.js';
+import { directChildById, extractComment, findOwnViewModel } from './dom.js';
 import { createLanguageModelController } from './lm.js';
 import { createNavigationState, pageKindFromPathname } from './navigation.js';
-import { NG_USERS_VALUE_KEY, NG_WORDS_VALUE_KEY, parseStoredSettings } from './settings.js';
+import {
+  ALLOW_USERS_VALUE_KEY,
+  NG_USERS_VALUE_KEY,
+  NG_WORDS_VALUE_KEY,
+  appendStoredUser,
+  parseStoredSettings,
+} from './settings.js';
 import { createAiQueue } from './queue.js';
 import { compileRules } from './rules.js';
 import { createThreadProcessor } from './scanner.js';
@@ -41,7 +51,7 @@ import {
   WATCH_COMMENTS_SELECTOR,
 } from './selectors.js';
 import { buildStyles } from './styles.js';
-import { createCountBar } from './ui.js';
+import { createCountBar, ensureBlockButton } from './ui.js';
 
 /** GM_setValue に保存するキャッシュのキー */
 const CACHE_STORAGE_KEY = 'aiCache';
@@ -89,18 +99,40 @@ function createGmStorage() {
 }
 
 /**
- * 「値」タブの NG ユーザ・NG ワードを読む。まだ無い値は空の配列で作り、「値」タブに名前が出るようにする
+ * 「値」タブの NG ユーザ・NG ワード・許可ユーザを読む。まだ無い値は空の配列で作り、「値」タブに名前が出るようにする
  * （利用者が値の名前を覚えていなくても書き込めるようにするため）。GM_* が使えない環境では空にする。
  * @returns {ReturnType<typeof parseStoredSettings>}
  */
 function readStoredSettings() {
-  if (typeof GM_getValue !== 'function') return parseStoredSettings({ ngUsers: undefined, ngWords: undefined });
+  if (typeof GM_getValue !== 'function') {
+    return parseStoredSettings({ ngUsers: undefined, ngWords: undefined, allowUsers: undefined });
+  }
   const read = (key) => {
     const value = GM_getValue(key);
     if (value === undefined && typeof GM_setValue === 'function') GM_setValue(key, []);
     return value;
   };
-  return parseStoredSettings({ ngUsers: read(NG_USERS_VALUE_KEY), ngWords: read(NG_WORDS_VALUE_KEY) });
+  return parseStoredSettings({
+    ngUsers: read(NG_USERS_VALUE_KEY),
+    ngWords: read(NG_WORDS_VALUE_KEY),
+    allowUsers: read(ALLOW_USERS_VALUE_KEY),
+  });
+}
+
+/**
+ * 設定ブロックと「値」タブの NG ユーザ・NG ワード・許可ユーザを合わせて照合器にする。設定の誤りは console に出す。
+ * @returns {import('./rules.js').CompiledRules}
+ */
+function buildRules() {
+  const stored = readStoredSettings();
+  for (const warning of stored.warnings) console.warn('[youtube-comment-filter]', warning);
+  const rules = compileRules({
+    ngUsers: [...NG_USERS, ...stored.ngUsers],
+    ngWords: [...NG_WORDS, ...stored.ngWords],
+    allowUsers: [...ALLOW_USERS, ...stored.allowUsers],
+  });
+  for (const warning of rules.warnings) console.warn('[youtube-comment-filter]', warning);
+  return rules;
 }
 
 /**
@@ -112,10 +144,7 @@ export function main() {
   updatePageAttrs();
   const navigation = createNavigationState(location.href);
 
-  const stored = readStoredSettings();
-  for (const warning of stored.warnings) console.warn('[youtube-comment-filter]', warning);
-  const rules = compileRules({ ngUsers: [...NG_USERS, ...stored.ngUsers], ngWords: [...NG_WORDS, ...stored.ngWords] });
-  for (const warning of rules.warnings) console.warn('[youtube-comment-filter]', warning);
+  const rules = buildRules();
 
   const cache = createAiCache({
     maxEntries: AI_CACHE_MAX_ENTRIES,
@@ -149,6 +178,7 @@ export function main() {
 
   const processor = createThreadProcessor({
     rules,
+    exempt: { owner: EXEMPT_OWNER, pinned: EXEMPT_PINNED, verified: EXEMPT_VERIFIED },
     cache,
     getAiMode: () => lm.getState().mode,
     debugLog,
@@ -253,6 +283,9 @@ export function main() {
     const startedAt = DEBUG ? performance.now() : 0;
     const threads = currentThreads();
     const items = processor.processThreads(threads);
+    for (const thread of threads) {
+      if (thread.getAttribute(STATE_ATTR) === 'shown') ensureBlockButton(findOwnViewModel(thread), doc, onBlockClick);
+    }
     // 遷移中は入れない。判定中のまま残った thread は、遷移の完了後のスキャンで入れる
     if (items.length > 0 && navigation.canEnqueue()) queue.enqueue(items);
     renderBar();
@@ -328,6 +361,40 @@ export function main() {
   function onCommentsMutation(records) {
     // 差し込まれた要素も渡す。target は差し込み先の親なので、差し込まれた thread は target からは見つからない
     processor.revalidate(records.flatMap((record) => [record.target, ...record.addedNodes]));
+    scheduleScan();
+  }
+
+  /**
+   * NG 登録のボタンのクリック。押された時点の投稿者を読み、確認のうえ「値」タブの ngUsers に足して判定し直す。
+   * ハンドルが読めればハンドルを、読めなければチャンネル ID を保存する（「値」タブで見分けやすいため）。
+   * @param {HTMLElement} button 押されたボタン
+   */
+  function onBlockClick(button) {
+    const thread = button.closest(THREAD_TAG);
+    if (!thread || !commentsEl || !commentsEl.contains(thread)) return;
+    let extracted;
+    try {
+      extracted = extractComment(thread);
+    } catch {
+      return;
+    }
+    if ('unreadable' in extracted) return;
+    const entry = extracted.author.handle ?? extracted.author.channelId;
+    if (!entry) {
+      window.alert('投稿者を読めないため、NG ユーザに追加できません。');
+      return;
+    }
+    if (typeof GM_getValue !== 'function' || typeof GM_setValue !== 'function') return;
+    if (!window.confirm(`${entry} を NG ユーザに追加しますか？\n（Violentmonkey の「値」タブの ngUsers に保存します）`)) return;
+    // 確認の間に「値」タブが書き換えられていても消さないよう、確認の後に読み直す
+    const next = appendStoredUser(GM_getValue(NG_USERS_VALUE_KEY), entry);
+    if (!next) {
+      window.alert('「値」タブの ngUsers が配列ではないため、追加できません。');
+      return;
+    }
+    GM_setValue(NG_USERS_VALUE_KEY, next);
+    debugLog('NG ユーザに追加', entry);
+    processor.setRules(buildRules());
     scheduleScan();
   }
 

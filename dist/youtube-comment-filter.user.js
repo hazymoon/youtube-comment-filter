@@ -24,7 +24,7 @@
  * @file 利用者が編集する設定。
  * Violentmonkey のエディタでこのブロックの値を書き換えて保存すると反映される。
  *
- * NG_USERS と NG_WORDS は、Violentmonkey のスクリプトの「値」タブの ngUsers / ngWords にも文字列の配列で書ける。
+ * NG_USERS・NG_WORDS・ALLOW_USERS は、Violentmonkey のスクリプトの「値」タブの ngUsers / ngWords / allowUsers にも文字列の配列で書ける。
  * 値はスクリプトを貼り替えても残るので、こちらに書くとよい（ここに書いた分と合わせて使う）。
  * 正規表現は "/死ね|しね/i" のように / で囲んだ文字列で書く。値の名前は初回の起動で空の配列として作られる。
  */
@@ -58,6 +58,32 @@ const NG_USERS = [];
  * @type {(string|RegExp)[]}
  */
 const NG_WORDS = [];
+
+/**
+ * 判定から外して常に表示するユーザ。書式は NG_USERS と同じ。
+ * NG_USERS・NG_WORDS・AI のどの判定よりも優先する（NG_USERS と両方に書くと表示になる）。
+ * Violentmonkey の「値」タブの allowUsers にも書ける。
+ * @type {string[]}
+ */
+const ALLOW_USERS = [];
+
+/**
+ * 動画のチャンネル所有者のコメントを判定から外して常に表示するか。
+ * @type {boolean}
+ */
+const EXEMPT_OWNER = true;
+
+/**
+ * 固定コメントを判定から外して常に表示するか。
+ * @type {boolean}
+ */
+const EXEMPT_PINNED = true;
+
+/**
+ * 認証バッジ付きのチャンネルのコメントを判定から外して常に表示するか。
+ * @type {boolean}
+ */
+const EXEMPT_VERIFIED = true;
 
 /**
  * 端末内の AI（Chrome の Prompt API）で不快なコメントを判定するか。
@@ -293,36 +319,21 @@ function safeDecodeUriComponent(value) {
 }
 
 /**
- * @typedef {object} CompiledRules
- * @property {string[]} warnings 設定から捨てた要素とその理由
- * @property {(author: { handle?: string|null, channelId?: string|null }) => ('handle'|'channelId'|null)} matchUser
- *   投稿者が NG ユーザか
- * @property {(text: string) => ({ word: string }|null)} matchWord 本文が NG ワードを含むか
- * @property {(reply: { text: string, leadingMentionHref?: string|null }) => boolean} matchMention
- *   返信の本文が NG ユーザ宛ての @メンションで始まるか
+ * ユーザの指定（ハンドルかチャンネル ID）の配列を、照合用の集合に振り分ける。
+ * 不正な要素は捨て、理由を warnings に入れる。
+ * @param {unknown[]|undefined} entries 指定の配列
+ * @param {string} label 警告に出す設定の名前
+ * @param {string[]} warnings 警告の追加先
+ * @returns {{ handles: Set<string>, channelIds: Set<string> }}
  */
-
-/**
- * 設定の NG ユーザ・NG ワードを照合器にする。
- * 不正な要素は例外にせず捨て、理由を warnings に入れる（設定の 1 か所の誤りでスクリプト全体を止めないため）。
- * @param {{ ngUsers?: unknown[], ngWords?: unknown[] }} config NG_USERS と NG_WORDS
- * @returns {CompiledRules}
- */
-function compileRules({ ngUsers = [], ngWords = [] } = {}) {
-  /** @type {string[]} */
-  const warnings = [];
+function compileUsers(entries, label, warnings) {
   /** @type {Set<string>} */
   const handles = new Set();
   /** @type {Set<string>} */
   const channelIds = new Set();
-  /** @type {{ normalized: string, label: string }[]} */
-  const stringWords = [];
-  /** @type {{ regexp: RegExp, label: string }[]} */
-  const regexpWords = [];
-
-  for (const entry of Array.isArray(ngUsers) ? ngUsers : []) {
+  for (const entry of Array.isArray(entries) ? entries : []) {
     if (typeof entry !== 'string') {
-      warnings.push(`NG_USERS: 文字列ではない要素を無視しました: ${String(entry)}`);
+      warnings.push(`${label}: 文字列ではない要素を無視しました: ${String(entry)}`);
       continue;
     }
     const trimmed = entry.trim();
@@ -338,8 +349,38 @@ function compileRules({ ngUsers = [], ngWords = [] } = {}) {
         continue;
       }
     }
-    warnings.push(`NG_USERS: "@ハンドル" か "UC" で始まる 24 文字のチャンネル ID ではないので無視しました: ${entry}`);
+    warnings.push(`${label}: "@ハンドル" か "UC" で始まる 24 文字のチャンネル ID ではないので無視しました: ${entry}`);
   }
+  return { handles, channelIds };
+}
+
+/**
+ * @typedef {object} CompiledRules
+ * @property {string[]} warnings 設定から捨てた要素とその理由
+ * @property {(author: { handle?: string|null, channelId?: string|null }) => ('handle'|'channelId'|null)} matchUser
+ *   投稿者が NG ユーザか
+ * @property {(author: { handle?: string|null, channelId?: string|null }) => boolean} matchAllowedUser
+ *   投稿者が許可ユーザか
+ * @property {(text: string) => ({ word: string }|null)} matchWord 本文が NG ワードを含むか
+ * @property {(reply: { text: string, leadingMentionHref?: string|null }) => boolean} matchMention
+ *   返信の本文が NG ユーザ宛ての @メンションで始まるか
+ */
+
+/**
+ * 設定の NG ユーザ・NG ワード・許可ユーザを照合器にする。
+ * 不正な要素は例外にせず捨て、理由を warnings に入れる（設定の 1 か所の誤りでスクリプト全体を止めないため）。
+ * @param {{ ngUsers?: unknown[], ngWords?: unknown[], allowUsers?: unknown[] }} config NG_USERS・NG_WORDS・ALLOW_USERS
+ * @returns {CompiledRules}
+ */
+function compileRules({ ngUsers = [], ngWords = [], allowUsers = [] } = {}) {
+  /** @type {string[]} */
+  const warnings = [];
+  const { handles, channelIds } = compileUsers(ngUsers, 'NG_USERS', warnings);
+  const allowed = compileUsers(allowUsers, 'ALLOW_USERS', warnings);
+  /** @type {{ normalized: string, label: string }[]} */
+  const stringWords = [];
+  /** @type {{ regexp: RegExp, label: string }[]} */
+  const regexpWords = [];
 
   for (const entry of Array.isArray(ngWords) ? ngWords : []) {
     if (typeof entry === 'string') {
@@ -380,6 +421,12 @@ function compileRules({ ngUsers = [], ngWords = [] } = {}) {
       if (isNgHandle(author.handle)) return 'handle';
       if (isNgChannelId(author.channelId)) return 'channelId';
       return null;
+    },
+
+    matchAllowedUser(author) {
+      if (!author) return false;
+      if (typeof author.handle === 'string' && allowed.handles.has(normalizeHandle(author.handle))) return true;
+      return typeof author.channelId === 'string' && allowed.channelIds.has(author.channelId);
     },
 
     matchWord(text) {
@@ -444,6 +491,29 @@ function judgeByRules(comment, rules) {
   const wordMatch = rules.matchWord(comment.text);
   if (wordMatch) return { reason: 'ngWord', detail: wordMatch.word };
   return { reason: null };
+}
+
+/**
+ * @typedef {object} ExemptOptions
+ * @property {boolean} owner 動画のチャンネル所有者のコメントを外すか
+ * @property {boolean} pinned 固定コメントを外すか
+ * @property {boolean} verified 認証バッジ付きのチャンネルのコメントを外すか
+ */
+
+/**
+ * コメントを判定から外す（NG ユーザ・NG ワード・AI のどれでも隠さない）かを調べる。
+ * 優先順位は、動画のチャンネル所有者 → 固定コメント → 認証バッジ付き → 許可ユーザ。
+ * @param {{ author: { handle?: string|null, channelId?: string|null, isOwner?: boolean, isVerified?: boolean }, isPinned?: boolean }} comment コメント
+ * @param {CompiledRules} rules compileRules の結果
+ * @param {ExemptOptions} options 外す対象の設定
+ * @returns {'owner'|'pinned'|'verified'|'allowUser'|null} 外す理由。外さないなら null
+ */
+function judgeExemption(comment, rules, options) {
+  if (options.owner && comment.author.isOwner) return 'owner';
+  if (options.pinned && comment.isPinned) return 'pinned';
+  if (options.verified && comment.author.isVerified) return 'verified';
+  if (rules.matchAllowedUser(comment.author)) return 'allowUser';
+  return null;
 }
 
 // ---- ai.js ----
@@ -1143,6 +1213,15 @@ const AUTHOR_LINK_SELECTOR = '#header-author h3 a#author-text';
 /** チャンネル所有者のコメントでの投稿者のリンク（href が /@handle）。確認済み（同上） */
 const OWNER_BADGE_LINK_SELECTOR = '#author-comment-badge ytd-author-comment-badge-renderer a#name';
 
+/** 投稿者の名前の行。NG 登録のボタンをここに差し込む。確認済み（docs/dom-structure.md「ytd-comment-view-model#comment の中」） */
+const HEADER_AUTHOR_SELECTOR = '#header-author';
+
+/**
+ * 固定コメントの印。未確認（工程 3 で確認）: docs/dom-structure.md は固定コメントを記録していない。
+ * 旧世代の ytd-comment-renderer の #pinned-comment-badge の中身から置いた。外れても固定コメントを判定するだけで、隠れすぎはしない
+ */
+const PINNED_BADGE_SELECTOR = 'ytd-pinned-comment-badge-renderer';
+
 /** 投稿日時のリンク（href に lc=<commentId>）。確認済み（同上） */
 const PUBLISHED_TIME_LINK_SELECTOR = '#published-time-text a';
 
@@ -1215,6 +1294,9 @@ const HASH_ATTR = 'data-ycf-hash';
 
 /** thread に付ける。付いている間は本文を全文表示に固定する */
 const EXPANDED_ATTR = 'data-ycf-expanded';
+
+/** コメントに差し込む NG 登録のボタンの class */
+const BLOCK_BUTTON_CLASS = 'ycf-block';
 
 /** 件数バーの要素の id */
 const BAR_ID = 'ycf-bar';
@@ -1370,6 +1452,30 @@ function readAuthorHandle(viewModel) {
 }
 
 /**
+ * 投稿者が動画のチャンネル所有者か。所有者のコメントにはバッジの a#name が付き、a#author-text は hidden になる。
+ * 要素の使い回しでバッジだけが残った場合に所有者と取り違えないよう、a#author-text が隠れていることも確かめる
+ * （a#author-text が無いときはバッジだけで判断する）。
+ * @param {any} viewModel ytd-comment-view-model
+ * @returns {boolean}
+ */
+function readIsOwner(viewModel) {
+  if (!viewModel?.querySelector?.(OWNER_BADGE_LINK_SELECTOR)) return false;
+  const authorLink = viewModel.querySelector(AUTHOR_LINK_SELECTOR);
+  return !authorLink || authorLink.getAttribute?.('hidden') !== null;
+}
+
+/**
+ * 固定コメントか。固定の印の要素があり、hidden でないときに固定とみなす。
+ * 印のセレクタは未確認（selectors.js の PINNED_BADGE_SELECTOR）。
+ * @param {any} viewModel ytd-comment-view-model
+ * @returns {boolean}
+ */
+function readIsPinned(viewModel) {
+  const badge = viewModel?.querySelector?.(PINNED_BADGE_SELECTOR);
+  return Boolean(badge) && badge.getAttribute?.('hidden') === null;
+}
+
+/**
  * 本文の先頭にあるリンクの href を返す（@返信の宛先の判定に使う）。
  * 本文の最初のリンクについて、本文が（先頭の空白を除いて）そのリンクの文字列で始まるときだけ返す。
  * @param {any} contentEl 本文の要素
@@ -1389,8 +1495,10 @@ function readLeadingMentionHref(contentEl, rawText) {
  * @property {string} id コメント ID
  * @property {string} text 本文（前後の空白を除く）。画像の絵文字だけの本文などは空文字
  * @property {string} textHash 本文のハッシュ（hashString）
- * @property {{ handle: string|null, channelId: string|null }} author 投稿者
+ * @property {{ handle: string|null, channelId: string|null, isOwner: boolean, isVerified: boolean }} author 投稿者。
+ *   isOwner は動画のチャンネル所有者か、isVerified は認証バッジ付きのチャンネルか
  * @property {boolean} isReply 返信か
+ * @property {boolean} isPinned 固定コメントか（返信は常に false）
  * @property {string|null} leadingMentionHref 本文の先頭にあるリンクの href
  */
 
@@ -1411,15 +1519,21 @@ function extractComment(threadEl) {
 
   const rawText = String(contentEl.textContent ?? '');
   const text = rawText.trim();
+  const authorData = viewModel.polymerController?.__data?.commentEntity?.author;
+  const isReply = hasAncestor(threadEl, REPLIES_RENDERER_TAG);
   return {
     id,
     text,
     textHash: hashString(text),
     author: {
       handle: readAuthorHandle(viewModel),
-      channelId: nonEmptyString(viewModel.polymerController?.__data?.commentEntity?.author?.channelId),
+      channelId: nonEmptyString(authorData?.channelId),
+      isOwner: readIsOwner(viewModel),
+      // 未確認（工程 3 で確認）: isVerified は docs/dom-structure.md に記録が無い。channelId と同じ commentEntity.author から読む
+      isVerified: authorData?.isVerified === true,
     },
-    isReply: hasAncestor(threadEl, REPLIES_RENDERER_TAG),
+    isReply,
+    isPinned: !isReply && readIsPinned(viewModel),
     leadingMentionHref: readLeadingMentionHref(contentEl, rawText),
   };
 }
@@ -1445,20 +1559,21 @@ function extractComment(threadEl) {
  * - 'unreadable': DOM からコメントを読めないので判定待ちとして隠している
  * - 'awaiting-ai': AI の判定の順番待ちか判定中
  * - 'ai-unresolved': AI の判定が得られなかった（タイムアウト・応答の欠落）。判定し直すまで判定待ちとして隠す
- * @typedef {'ngUser'|'ngWord'|'ai'|'unreadable'|'awaiting-ai'|'ai-unresolved'} StateReason
+ * - 'exempt': 判定から外して表示している（動画の投稿者・固定コメントなど。rules.js の judgeExemption）
+ * @typedef {'ngUser'|'ngWord'|'ai'|'unreadable'|'awaiting-ai'|'ai-unresolved'|'exempt'} StateReason
  */
 
 /**
  * @typedef {object} Decision
  * @property {'shown'|'hidden'|'pending'} state 表示状態
- * @property {StateReason} [reason] 理由（表示するときは無い）
+ * @property {StateReason} [reason] 理由（表示するときは、判定から外した 'exempt' のときだけ付く）
  * @property {boolean} enqueue AI の判定の順番待ちに入れるか
  */
 
 /**
  * コメントの表示状態を決める。
  *
- * 順に、読めない → 判定待ち（fail-closed）、ルールで NG → 非表示、本文が空 → 表示（AI に送らない）、
+ * 順に、読めない → 判定待ち（fail-closed）、判定から外す → 表示、ルールで NG → 非表示、本文が空 → 表示（AI に送らない）、
  * AI が使えない → 表示（ルールは通過済み）、キャッシュがある → それに従う、それ以外 → AI の判定を待つ。
  * ルールを本文が空かより先に見るのは、画像の絵文字だけのコメントにも NG ユーザ（投稿者・@返信の宛先）を効かせるため。
  * AI の準備中（'initializing' / 'needs-activation'）でも順番待ちに入れる。順番待ちは基底セッションの準備を待ってから判定する。
@@ -1469,10 +1584,12 @@ function extractComment(threadEl) {
  * @param {AiMode} input.aiMode AI 判定の状態
  * @param {{ hide: boolean, category: string|null }|null} input.cached キャッシュの判定結果
  * @param {boolean} [input.aiUnresolved] 同じコメント（ID と本文が同じ）の AI 判定が前に得られなかったか
+ * @param {boolean} [input.exempt] 判定から外すコメントか（judgeExemption の結果が null でない）
  * @returns {Decision}
  */
-function decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved = false }) {
+function decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved = false, exempt = false }) {
   if ('unreadable' in extracted) return { state: 'pending', reason: 'unreadable', enqueue: false };
+  if (exempt) return { state: 'shown', reason: 'exempt', enqueue: false };
   if (ruleResult?.reason === 'ngUser' || ruleResult?.reason === 'ngWord') {
     return { state: 'hidden', reason: ruleResult.reason, enqueue: false };
   }
@@ -1683,6 +1800,11 @@ function buildStyles() {
     ),
   );
   const hiddenThread = forEachScope((thread) => [`${thread}[${STATE_ATTR}="hidden"]`]);
+  // NG 登録のボタンは、判定から外したもの以外の表示中のコメントにホバーしたときだけ見せる。
+  // 直下結合子で書き、返信にホバーしたときに親のボタンが出ないようにする
+  const blockButtonShown = forEachScope((thread) => [
+    `${thread}[${STATE_ATTR}="shown"]:not([${REASON_ATTR}="exempt"]) > #${COMMENT_CONTAINER_ID} ${VIEW_MODEL_TAG}:hover .${BLOCK_BUTTON_CLASS}`,
+  ]);
 
   const contentOf = (container) => `${container} ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
   const hoverOf = (container) => `${container} ${VIEW_MODEL_TAG}:hover ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
@@ -1803,6 +1925,27 @@ ${shownButtons} {
   display: none !important;
 }
 
+/* NG 登録のボタン */
+.${BLOCK_BUTTON_CLASS} {
+  display: none !important;
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: ${barColor('subtext', 'light')};
+  font-family: "Roboto", "Arial", sans-serif;
+  font-size: 1.1rem;
+  line-height: 1.8rem;
+  cursor: pointer;
+}
+html[dark] .${BLOCK_BUTTON_CLASS} {
+  color: ${barColor('subtext', 'dark')};
+}
+${blockButtonShown} {
+  display: inline-block !important;
+}
+
 /* 件数バー */
 #${BAR_ID} {
   display: flex;
@@ -1844,7 +1987,7 @@ ${darkBarColorRules()}
 
 // ---- ui.js ----
 /**
- * @file 件数バー。要素は createElement と textContent だけで作る（Trusted Types のため文字列 HTML の代入はしない）。
+ * @file 件数バーと NG 登録のボタン。要素は createElement と textContent だけで作る（Trusted Types のため文字列 HTML の代入はしない）。
  */
 
 
@@ -1909,6 +2052,35 @@ function createCountBar({ doc, onToggle }) {
       parent.insertBefore(element, commentsEl);
     },
   };
+}
+
+/**
+ * コメントの投稿者の名前の行（#header-author）の末尾に NG 登録のボタンを差し込む（差し込み済みなら何もしない）。
+ * ボタンを見せるかは CSS が表示状態で決める（styles.js）。要素が別のコメントに使い回されても、
+ * 押された時点の投稿者を読むので、ボタンは付け直さない。
+ * @param {any} viewModel ytd-comment-view-model
+ * @param {Document} doc 要素を作る document
+ * @param {(button: HTMLElement) => void} onClick ボタンが押された
+ */
+function ensureBlockButton(viewModel, doc, onClick) {
+  const header = viewModel?.querySelector?.(HEADER_AUTHOR_SELECTOR);
+  if (!header) return;
+  for (const child of Array.from(header.children ?? [])) {
+    if (child?.classList?.contains(BLOCK_BUTTON_CLASS)) return;
+  }
+  const button = doc.createElement('button');
+  button.type = 'button';
+  button.className = BLOCK_BUTTON_CLASS;
+  button.textContent = 'NG';
+  button.title = 'この投稿者を NG ユーザに追加する';
+  button.setAttribute('aria-label', 'この投稿者を NG ユーザに追加する');
+  button.addEventListener('click', (event) => {
+    // YouTube 側のクリック処理（投稿者のページへの移動など）に渡さない
+    event.preventDefault();
+    event.stopPropagation();
+    onClick(button);
+  });
+  header.appendChild(button);
 }
 
 // ---- lm.js ----
@@ -2180,12 +2352,15 @@ function threadOfTarget(target) {
  * @property {(targets: Iterable<any>) => void} revalidate
  *   変化した要素を含む thread について、表示中のコメントが判定したものと同じかを同期で確かめ、
  *   違えば判定前（CSS で隠れる状態）に戻す
+ * @property {(rules: import('./rules.js').CompiledRules) => void} setRules
+ *   ルールを差し替える。表示か非表示に確定済みのコメントも、次の processThreads で新しいルールで判定し直す
  */
 
 /**
  * thread の判定と表示状態の反映を作る。
  * @param {object} options
  * @param {import('./rules.js').CompiledRules} options.rules compileRules の結果
+ * @param {import('./rules.js').ExemptOptions} [options.exempt] 判定から外す対象。省略時はどれも外さない（許可ユーザは常に外す）
  * @param {{ get: (id: string, textHash: string) => ({ hide: boolean, category: string|null }|null), set: (id: string, textHash: string, verdict: { hide: boolean, category: string|null }) => void }} options.cache
  *   AI の判定のキャッシュ
  * @param {() => import('./decide.js').AiMode} options.getAiMode AI 判定の状態
@@ -2193,7 +2368,19 @@ function threadOfTarget(target) {
  *   （AI_HIDDEN_EXCERPT_CHARS 文字まで）だけを渡す
  * @returns {ThreadProcessor}
  */
-function createThreadProcessor({ rules, cache, getAiMode, debugLog = () => {} }) {
+function createThreadProcessor({
+  rules,
+  exempt = { owner: false, pinned: false, verified: false },
+  cache,
+  getAiMode,
+  debugLog = () => {},
+}) {
+  let currentRules = rules;
+  /** ルールを差し替えた回数。thread ごとに、どの版のルールで判定したかを judgedRulesVersion に持つ */
+  let rulesVersion = 0;
+  /** @type {WeakMap<Element, number>} */
+  const judgedRulesVersion = new WeakMap();
+
   /**
    * AI が隠したコメントのカテゴリと本文の冒頭を出す。隠したコメントを画面で確かめる手段が無いので、
    * AI の誤判定を利用者が確かめられるようにするため（DEBUG のときだけ出る。保存はしない）。
@@ -2229,7 +2416,7 @@ function createThreadProcessor({ rules, cache, getAiMode, debugLog = () => {} })
 
     const prevState = thread.getAttribute(STATE_ATTR);
     const same = thread.getAttribute(ID_ATTR) === extracted.id && thread.getAttribute(HASH_ATTR) === extracted.textHash;
-    if (same && (prevState === 'shown' || prevState === 'hidden')) return;
+    if (same && (prevState === 'shown' || prevState === 'hidden') && judgedRulesVersion.get(thread) === rulesVersion) return;
     if (!same) {
       thread.setAttribute(ID_ATTR, extracted.id);
       thread.setAttribute(HASH_ATTR, extracted.textHash);
@@ -2241,14 +2428,21 @@ function createThreadProcessor({ rules, cache, getAiMode, debugLog = () => {} })
     }
     const aiUnresolved = same && thread.getAttribute(REASON_ATTR) === 'ai-unresolved';
 
-    const ruleResult = judgeByRules(extracted, rules);
+    const exemption = judgeExemption(extracted, currentRules, exempt);
+    /** @type {ReturnType<typeof judgeByRules>} */
+    const ruleResult = exemption === null ? judgeByRules(extracted, currentRules) : { reason: null };
     const needsCache =
-      ruleResult.reason === null && extracted.text !== '' && aiMode !== 'disabled' && aiMode !== 'failed';
+      exemption === null &&
+      ruleResult.reason === null &&
+      extracted.text !== '' &&
+      aiMode !== 'disabled' &&
+      aiMode !== 'failed';
     const cached = needsCache ? cache.get(extracted.id, extracted.textHash) : null;
-    const decision = decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved });
+    const decision = decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved, exempt: exemption !== null });
     applyThreadState(thread, decision.state, decision.reason);
+    judgedRulesVersion.set(thread, rulesVersion);
     if (decision.state !== 'pending' || !same) {
-      debugLog('判定', extracted.id, decision.state, decision.reason ?? '', ruleResult.detail ?? '');
+      debugLog('判定', extracted.id, decision.state, decision.reason ?? '', exemption ?? ruleResult.detail ?? '');
     }
     if (decision.state === 'hidden' && decision.reason === 'ai') logAiHidden(cached?.category ?? null, extracted.text);
     if (decision.enqueue) {
@@ -2316,6 +2510,11 @@ function createThreadProcessor({ rules, cache, getAiMode, debugLog = () => {} })
         debugLog('AI の判定待ち', id);
       }
       return { needsRescan };
+    },
+
+    setRules(rules) {
+      currentRules = rules;
+      rulesVersion += 1;
     },
 
     countThreads(threads) {
@@ -2485,7 +2684,7 @@ function createNavigationState(initialHref) {
 
 // ---- settings.js ----
 /**
- * @file Violentmonkey の「値」タブに書く NG ユーザ・NG ワードの読み取り。
+ * @file Violentmonkey の「値」タブに書く NG ユーザ・NG ワード・許可ユーザの読み書き。
  *
  * スクリプト本体の NG_USERS / NG_WORDS は dist を貼り替えると空に戻るが、値は貼り替えても残る。
  * 値は JSON なので正規表現を直接書けず、"/…/flags" の形の文字列で書く。
@@ -2496,6 +2695,9 @@ const NG_USERS_VALUE_KEY = 'ngUsers';
 
 /** 値の名前。「値」タブにこの名前で文字列の配列を書く */
 const NG_WORDS_VALUE_KEY = 'ngWords';
+
+/** 値の名前。「値」タブにこの名前で文字列の配列を書く */
+const ALLOW_USERS_VALUE_KEY = 'allowUsers';
 
 // "/source/flags". The source must be non-empty so that "//" stays a plain word.
 const REGEXP_LITERAL_PATTERN = /^\/(.+)\/([a-z]*)$/s;
@@ -2522,12 +2724,12 @@ function readStringArray(value, key, warnings) {
 }
 
 /**
- * 「値」タブの NG ユーザ・NG ワードを、NG_USERS / NG_WORDS と同じ形にする。
+ * 「値」タブの NG ユーザ・NG ワード・許可ユーザを、NG_USERS / NG_WORDS / ALLOW_USERS と同じ形にする。
  * 不正な要素は例外にせず捨て、理由を warnings に入れる（設定の 1 か所の誤りでスクリプト全体を止めないため）。
- * @param {{ ngUsers: unknown, ngWords: unknown }} stored GM_getValue で読んだ値
- * @returns {{ ngUsers: string[], ngWords: (string|RegExp)[], warnings: string[] }}
+ * @param {{ ngUsers: unknown, ngWords: unknown, allowUsers?: unknown }} stored GM_getValue で読んだ値
+ * @returns {{ ngUsers: string[], ngWords: (string|RegExp)[], allowUsers: string[], warnings: string[] }}
  */
-function parseStoredSettings({ ngUsers, ngWords }) {
+function parseStoredSettings({ ngUsers, ngWords, allowUsers }) {
   /** @type {string[]} */
   const warnings = [];
   /** @type {(string|RegExp)[]} */
@@ -2544,7 +2746,26 @@ function parseStoredSettings({ ngUsers, ngWords }) {
       warnings.push(`値 ${NG_WORDS_VALUE_KEY}: 正規表現として解釈できないので無視しました: ${word}`);
     }
   }
-  return { ngUsers: readStringArray(ngUsers, NG_USERS_VALUE_KEY, warnings), ngWords: words, warnings };
+  return {
+    ngUsers: readStringArray(ngUsers, NG_USERS_VALUE_KEY, warnings),
+    ngWords: words,
+    allowUsers: readStringArray(allowUsers, ALLOW_USERS_VALUE_KEY, warnings),
+    warnings,
+  };
+}
+
+/**
+ * 「値」の ngUsers に 1 件足した配列を返す。保存は呼び出し側が行う。
+ * 値が配列でないときは、利用者が書いた内容を上書きで消さないよう null を返す。
+ * 同じ文字列が既にあれば足さない。
+ * @param {unknown} value GM_getValue で読んだ ngUsers
+ * @param {string} entry 足すハンドルかチャンネル ID
+ * @returns {unknown[]|null} 足した後の配列。足せないときは null
+ */
+function appendStoredUser(value, entry) {
+  if (value === undefined || value === null) return [entry];
+  if (!Array.isArray(value)) return null;
+  return value.includes(entry) ? [...value] : [...value, entry];
 }
 
 // ---- main.js ----
@@ -2599,18 +2820,40 @@ function createGmStorage() {
 }
 
 /**
- * 「値」タブの NG ユーザ・NG ワードを読む。まだ無い値は空の配列で作り、「値」タブに名前が出るようにする
+ * 「値」タブの NG ユーザ・NG ワード・許可ユーザを読む。まだ無い値は空の配列で作り、「値」タブに名前が出るようにする
  * （利用者が値の名前を覚えていなくても書き込めるようにするため）。GM_* が使えない環境では空にする。
  * @returns {ReturnType<typeof parseStoredSettings>}
  */
 function readStoredSettings() {
-  if (typeof GM_getValue !== 'function') return parseStoredSettings({ ngUsers: undefined, ngWords: undefined });
+  if (typeof GM_getValue !== 'function') {
+    return parseStoredSettings({ ngUsers: undefined, ngWords: undefined, allowUsers: undefined });
+  }
   const read = (key) => {
     const value = GM_getValue(key);
     if (value === undefined && typeof GM_setValue === 'function') GM_setValue(key, []);
     return value;
   };
-  return parseStoredSettings({ ngUsers: read(NG_USERS_VALUE_KEY), ngWords: read(NG_WORDS_VALUE_KEY) });
+  return parseStoredSettings({
+    ngUsers: read(NG_USERS_VALUE_KEY),
+    ngWords: read(NG_WORDS_VALUE_KEY),
+    allowUsers: read(ALLOW_USERS_VALUE_KEY),
+  });
+}
+
+/**
+ * 設定ブロックと「値」タブの NG ユーザ・NG ワード・許可ユーザを合わせて照合器にする。設定の誤りは console に出す。
+ * @returns {import('./rules.js').CompiledRules}
+ */
+function buildRules() {
+  const stored = readStoredSettings();
+  for (const warning of stored.warnings) console.warn('[youtube-comment-filter]', warning);
+  const rules = compileRules({
+    ngUsers: [...NG_USERS, ...stored.ngUsers],
+    ngWords: [...NG_WORDS, ...stored.ngWords],
+    allowUsers: [...ALLOW_USERS, ...stored.allowUsers],
+  });
+  for (const warning of rules.warnings) console.warn('[youtube-comment-filter]', warning);
+  return rules;
 }
 
 /**
@@ -2622,10 +2865,7 @@ function main() {
   updatePageAttrs();
   const navigation = createNavigationState(location.href);
 
-  const stored = readStoredSettings();
-  for (const warning of stored.warnings) console.warn('[youtube-comment-filter]', warning);
-  const rules = compileRules({ ngUsers: [...NG_USERS, ...stored.ngUsers], ngWords: [...NG_WORDS, ...stored.ngWords] });
-  for (const warning of rules.warnings) console.warn('[youtube-comment-filter]', warning);
+  const rules = buildRules();
 
   const cache = createAiCache({
     maxEntries: AI_CACHE_MAX_ENTRIES,
@@ -2659,6 +2899,7 @@ function main() {
 
   const processor = createThreadProcessor({
     rules,
+    exempt: { owner: EXEMPT_OWNER, pinned: EXEMPT_PINNED, verified: EXEMPT_VERIFIED },
     cache,
     getAiMode: () => lm.getState().mode,
     debugLog,
@@ -2763,6 +3004,9 @@ function main() {
     const startedAt = DEBUG ? performance.now() : 0;
     const threads = currentThreads();
     const items = processor.processThreads(threads);
+    for (const thread of threads) {
+      if (thread.getAttribute(STATE_ATTR) === 'shown') ensureBlockButton(findOwnViewModel(thread), doc, onBlockClick);
+    }
     // 遷移中は入れない。判定中のまま残った thread は、遷移の完了後のスキャンで入れる
     if (items.length > 0 && navigation.canEnqueue()) queue.enqueue(items);
     renderBar();
@@ -2838,6 +3082,40 @@ function main() {
   function onCommentsMutation(records) {
     // 差し込まれた要素も渡す。target は差し込み先の親なので、差し込まれた thread は target からは見つからない
     processor.revalidate(records.flatMap((record) => [record.target, ...record.addedNodes]));
+    scheduleScan();
+  }
+
+  /**
+   * NG 登録のボタンのクリック。押された時点の投稿者を読み、確認のうえ「値」タブの ngUsers に足して判定し直す。
+   * ハンドルが読めればハンドルを、読めなければチャンネル ID を保存する（「値」タブで見分けやすいため）。
+   * @param {HTMLElement} button 押されたボタン
+   */
+  function onBlockClick(button) {
+    const thread = button.closest(THREAD_TAG);
+    if (!thread || !commentsEl || !commentsEl.contains(thread)) return;
+    let extracted;
+    try {
+      extracted = extractComment(thread);
+    } catch {
+      return;
+    }
+    if ('unreadable' in extracted) return;
+    const entry = extracted.author.handle ?? extracted.author.channelId;
+    if (!entry) {
+      window.alert('投稿者を読めないため、NG ユーザに追加できません。');
+      return;
+    }
+    if (typeof GM_getValue !== 'function' || typeof GM_setValue !== 'function') return;
+    if (!window.confirm(`${entry} を NG ユーザに追加しますか？\n（Violentmonkey の「値」タブの ngUsers に保存します）`)) return;
+    // 確認の間に「値」タブが書き換えられていても消さないよう、確認の後に読み直す
+    const next = appendStoredUser(GM_getValue(NG_USERS_VALUE_KEY), entry);
+    if (!next) {
+      window.alert('「値」タブの ngUsers が配列ではないため、追加できません。');
+      return;
+    }
+    GM_setValue(NG_USERS_VALUE_KEY, next);
+    debugLog('NG ユーザに追加', entry);
+    processor.setRules(buildRules());
     scheduleScan();
   }
 

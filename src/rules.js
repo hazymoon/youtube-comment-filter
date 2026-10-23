@@ -55,36 +55,21 @@ function safeDecodeUriComponent(value) {
 }
 
 /**
- * @typedef {object} CompiledRules
- * @property {string[]} warnings 設定から捨てた要素とその理由
- * @property {(author: { handle?: string|null, channelId?: string|null }) => ('handle'|'channelId'|null)} matchUser
- *   投稿者が NG ユーザか
- * @property {(text: string) => ({ word: string }|null)} matchWord 本文が NG ワードを含むか
- * @property {(reply: { text: string, leadingMentionHref?: string|null }) => boolean} matchMention
- *   返信の本文が NG ユーザ宛ての @メンションで始まるか
+ * ユーザの指定（ハンドルかチャンネル ID）の配列を、照合用の集合に振り分ける。
+ * 不正な要素は捨て、理由を warnings に入れる。
+ * @param {unknown[]|undefined} entries 指定の配列
+ * @param {string} label 警告に出す設定の名前
+ * @param {string[]} warnings 警告の追加先
+ * @returns {{ handles: Set<string>, channelIds: Set<string> }}
  */
-
-/**
- * 設定の NG ユーザ・NG ワードを照合器にする。
- * 不正な要素は例外にせず捨て、理由を warnings に入れる（設定の 1 か所の誤りでスクリプト全体を止めないため）。
- * @param {{ ngUsers?: unknown[], ngWords?: unknown[] }} config NG_USERS と NG_WORDS
- * @returns {CompiledRules}
- */
-export function compileRules({ ngUsers = [], ngWords = [] } = {}) {
-  /** @type {string[]} */
-  const warnings = [];
+function compileUsers(entries, label, warnings) {
   /** @type {Set<string>} */
   const handles = new Set();
   /** @type {Set<string>} */
   const channelIds = new Set();
-  /** @type {{ normalized: string, label: string }[]} */
-  const stringWords = [];
-  /** @type {{ regexp: RegExp, label: string }[]} */
-  const regexpWords = [];
-
-  for (const entry of Array.isArray(ngUsers) ? ngUsers : []) {
+  for (const entry of Array.isArray(entries) ? entries : []) {
     if (typeof entry !== 'string') {
-      warnings.push(`NG_USERS: 文字列ではない要素を無視しました: ${String(entry)}`);
+      warnings.push(`${label}: 文字列ではない要素を無視しました: ${String(entry)}`);
       continue;
     }
     const trimmed = entry.trim();
@@ -100,8 +85,38 @@ export function compileRules({ ngUsers = [], ngWords = [] } = {}) {
         continue;
       }
     }
-    warnings.push(`NG_USERS: "@ハンドル" か "UC" で始まる 24 文字のチャンネル ID ではないので無視しました: ${entry}`);
+    warnings.push(`${label}: "@ハンドル" か "UC" で始まる 24 文字のチャンネル ID ではないので無視しました: ${entry}`);
   }
+  return { handles, channelIds };
+}
+
+/**
+ * @typedef {object} CompiledRules
+ * @property {string[]} warnings 設定から捨てた要素とその理由
+ * @property {(author: { handle?: string|null, channelId?: string|null }) => ('handle'|'channelId'|null)} matchUser
+ *   投稿者が NG ユーザか
+ * @property {(author: { handle?: string|null, channelId?: string|null }) => boolean} matchAllowedUser
+ *   投稿者が許可ユーザか
+ * @property {(text: string) => ({ word: string }|null)} matchWord 本文が NG ワードを含むか
+ * @property {(reply: { text: string, leadingMentionHref?: string|null }) => boolean} matchMention
+ *   返信の本文が NG ユーザ宛ての @メンションで始まるか
+ */
+
+/**
+ * 設定の NG ユーザ・NG ワード・許可ユーザを照合器にする。
+ * 不正な要素は例外にせず捨て、理由を warnings に入れる（設定の 1 か所の誤りでスクリプト全体を止めないため）。
+ * @param {{ ngUsers?: unknown[], ngWords?: unknown[], allowUsers?: unknown[] }} config NG_USERS・NG_WORDS・ALLOW_USERS
+ * @returns {CompiledRules}
+ */
+export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [] } = {}) {
+  /** @type {string[]} */
+  const warnings = [];
+  const { handles, channelIds } = compileUsers(ngUsers, 'NG_USERS', warnings);
+  const allowed = compileUsers(allowUsers, 'ALLOW_USERS', warnings);
+  /** @type {{ normalized: string, label: string }[]} */
+  const stringWords = [];
+  /** @type {{ regexp: RegExp, label: string }[]} */
+  const regexpWords = [];
 
   for (const entry of Array.isArray(ngWords) ? ngWords : []) {
     if (typeof entry === 'string') {
@@ -142,6 +157,12 @@ export function compileRules({ ngUsers = [], ngWords = [] } = {}) {
       if (isNgHandle(author.handle)) return 'handle';
       if (isNgChannelId(author.channelId)) return 'channelId';
       return null;
+    },
+
+    matchAllowedUser(author) {
+      if (!author) return false;
+      if (typeof author.handle === 'string' && allowed.handles.has(normalizeHandle(author.handle))) return true;
+      return typeof author.channelId === 'string' && allowed.channelIds.has(author.channelId);
     },
 
     matchWord(text) {
@@ -206,4 +227,27 @@ export function judgeByRules(comment, rules) {
   const wordMatch = rules.matchWord(comment.text);
   if (wordMatch) return { reason: 'ngWord', detail: wordMatch.word };
   return { reason: null };
+}
+
+/**
+ * @typedef {object} ExemptOptions
+ * @property {boolean} owner 動画のチャンネル所有者のコメントを外すか
+ * @property {boolean} pinned 固定コメントを外すか
+ * @property {boolean} verified 認証バッジ付きのチャンネルのコメントを外すか
+ */
+
+/**
+ * コメントを判定から外す（NG ユーザ・NG ワード・AI のどれでも隠さない）かを調べる。
+ * 優先順位は、動画のチャンネル所有者 → 固定コメント → 認証バッジ付き → 許可ユーザ。
+ * @param {{ author: { handle?: string|null, channelId?: string|null, isOwner?: boolean, isVerified?: boolean }, isPinned?: boolean }} comment コメント
+ * @param {CompiledRules} rules compileRules の結果
+ * @param {ExemptOptions} options 外す対象の設定
+ * @returns {'owner'|'pinned'|'verified'|'allowUser'|null} 外す理由。外さないなら null
+ */
+export function judgeExemption(comment, rules, options) {
+  if (options.owner && comment.author.isOwner) return 'owner';
+  if (options.pinned && comment.isPinned) return 'pinned';
+  if (options.verified && comment.author.isVerified) return 'verified';
+  if (rules.matchAllowedUser(comment.author)) return 'allowUser';
+  return null;
 }

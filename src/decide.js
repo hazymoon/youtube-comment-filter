@@ -18,20 +18,21 @@
  * - 'unreadable': DOM からコメントを読めないので判定待ちとして隠している
  * - 'awaiting-ai': AI の判定の順番待ちか判定中
  * - 'ai-unresolved': AI の判定が得られなかった（タイムアウト・応答の欠落）。判定し直すまで判定待ちとして隠す
- * @typedef {'ngUser'|'ngWord'|'ai'|'unreadable'|'awaiting-ai'|'ai-unresolved'} StateReason
+ * - 'exempt': 判定から外して表示している（動画の投稿者・固定コメントなど。rules.js の judgeExemption）
+ * @typedef {'ngUser'|'ngWord'|'ai'|'unreadable'|'awaiting-ai'|'ai-unresolved'|'exempt'} StateReason
  */
 
 /**
  * @typedef {object} Decision
  * @property {'shown'|'hidden'|'pending'} state 表示状態
- * @property {StateReason} [reason] 理由（表示するときは無い）
+ * @property {StateReason} [reason] 理由（表示するときは、判定から外した 'exempt' のときだけ付く）
  * @property {boolean} enqueue AI の判定の順番待ちに入れるか
  */
 
 /**
  * コメントの表示状態を決める。
  *
- * 順に、読めない → 判定待ち（fail-closed）、ルールで NG → 非表示、本文が空 → 表示（AI に送らない）、
+ * 順に、読めない → 判定待ち（fail-closed）、判定から外す → 表示、ルールで NG → 非表示、本文が空 → 表示（AI に送らない）、
  * AI が使えない → 表示（ルールは通過済み）、キャッシュがある → それに従う、それ以外 → AI の判定を待つ。
  * ルールを本文が空かより先に見るのは、画像の絵文字だけのコメントにも NG ユーザ（投稿者・@返信の宛先）を効かせるため。
  * AI の準備中（'initializing' / 'needs-activation'）でも順番待ちに入れる。順番待ちは基底セッションの準備を待ってから判定する。
@@ -42,10 +43,12 @@
  * @param {AiMode} input.aiMode AI 判定の状態
  * @param {{ hide: boolean, category: string|null }|null} input.cached キャッシュの判定結果
  * @param {boolean} [input.aiUnresolved] 同じコメント（ID と本文が同じ）の AI 判定が前に得られなかったか
+ * @param {boolean} [input.exempt] 判定から外すコメントか（judgeExemption の結果が null でない）
  * @returns {Decision}
  */
-export function decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved = false }) {
+export function decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved = false, exempt = false }) {
   if ('unreadable' in extracted) return { state: 'pending', reason: 'unreadable', enqueue: false };
+  if (exempt) return { state: 'shown', reason: 'exempt', enqueue: false };
   if (ruleResult?.reason === 'ngUser' || ruleResult?.reason === 'ngWord') {
     return { state: 'hidden', reason: ruleResult.reason, enqueue: false };
   }

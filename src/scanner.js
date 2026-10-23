@@ -6,7 +6,7 @@
 import { countStates, decideState } from './decide.js';
 import { extractComment, isInsideHiddenThread } from './dom.js';
 import { hashString } from './hash.js';
-import { judgeByRules } from './rules.js';
+import { judgeByRules, judgeExemption } from './rules.js';
 import { EXPANDED_ATTR, HASH_ATTR, ID_ATTR, REASON_ATTR, STATE_ATTR, THREAD_TAG } from './selectors.js';
 
 /** AI が隠したコメントを DEBUG で出すときの本文の文字数の上限。誤判定かを見分けられる程度に短くする */
@@ -73,12 +73,15 @@ function threadOfTarget(target) {
  * @property {(targets: Iterable<any>) => void} revalidate
  *   変化した要素を含む thread について、表示中のコメントが判定したものと同じかを同期で確かめ、
  *   違えば判定前（CSS で隠れる状態）に戻す
+ * @property {(rules: import('./rules.js').CompiledRules) => void} setRules
+ *   ルールを差し替える。表示か非表示に確定済みのコメントも、次の processThreads で新しいルールで判定し直す
  */
 
 /**
  * thread の判定と表示状態の反映を作る。
  * @param {object} options
  * @param {import('./rules.js').CompiledRules} options.rules compileRules の結果
+ * @param {import('./rules.js').ExemptOptions} [options.exempt] 判定から外す対象。省略時はどれも外さない（許可ユーザは常に外す）
  * @param {{ get: (id: string, textHash: string) => ({ hide: boolean, category: string|null }|null), set: (id: string, textHash: string, verdict: { hide: boolean, category: string|null }) => void }} options.cache
  *   AI の判定のキャッシュ
  * @param {() => import('./decide.js').AiMode} options.getAiMode AI 判定の状態
@@ -86,7 +89,19 @@ function threadOfTarget(target) {
  *   （AI_HIDDEN_EXCERPT_CHARS 文字まで）だけを渡す
  * @returns {ThreadProcessor}
  */
-export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () => {} }) {
+export function createThreadProcessor({
+  rules,
+  exempt = { owner: false, pinned: false, verified: false },
+  cache,
+  getAiMode,
+  debugLog = () => {},
+}) {
+  let currentRules = rules;
+  /** ルールを差し替えた回数。thread ごとに、どの版のルールで判定したかを judgedRulesVersion に持つ */
+  let rulesVersion = 0;
+  /** @type {WeakMap<Element, number>} */
+  const judgedRulesVersion = new WeakMap();
+
   /**
    * AI が隠したコメントのカテゴリと本文の冒頭を出す。隠したコメントを画面で確かめる手段が無いので、
    * AI の誤判定を利用者が確かめられるようにするため（DEBUG のときだけ出る。保存はしない）。
@@ -122,7 +137,7 @@ export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () =
 
     const prevState = thread.getAttribute(STATE_ATTR);
     const same = thread.getAttribute(ID_ATTR) === extracted.id && thread.getAttribute(HASH_ATTR) === extracted.textHash;
-    if (same && (prevState === 'shown' || prevState === 'hidden')) return;
+    if (same && (prevState === 'shown' || prevState === 'hidden') && judgedRulesVersion.get(thread) === rulesVersion) return;
     if (!same) {
       thread.setAttribute(ID_ATTR, extracted.id);
       thread.setAttribute(HASH_ATTR, extracted.textHash);
@@ -134,14 +149,21 @@ export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () =
     }
     const aiUnresolved = same && thread.getAttribute(REASON_ATTR) === 'ai-unresolved';
 
-    const ruleResult = judgeByRules(extracted, rules);
+    const exemption = judgeExemption(extracted, currentRules, exempt);
+    /** @type {ReturnType<typeof judgeByRules>} */
+    const ruleResult = exemption === null ? judgeByRules(extracted, currentRules) : { reason: null };
     const needsCache =
-      ruleResult.reason === null && extracted.text !== '' && aiMode !== 'disabled' && aiMode !== 'failed';
+      exemption === null &&
+      ruleResult.reason === null &&
+      extracted.text !== '' &&
+      aiMode !== 'disabled' &&
+      aiMode !== 'failed';
     const cached = needsCache ? cache.get(extracted.id, extracted.textHash) : null;
-    const decision = decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved });
+    const decision = decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved, exempt: exemption !== null });
     applyThreadState(thread, decision.state, decision.reason);
+    judgedRulesVersion.set(thread, rulesVersion);
     if (decision.state !== 'pending' || !same) {
-      debugLog('判定', extracted.id, decision.state, decision.reason ?? '', ruleResult.detail ?? '');
+      debugLog('判定', extracted.id, decision.state, decision.reason ?? '', exemption ?? ruleResult.detail ?? '');
     }
     if (decision.state === 'hidden' && decision.reason === 'ai') logAiHidden(cached?.category ?? null, extracted.text);
     if (decision.enqueue) {
@@ -209,6 +231,11 @@ export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () =
         debugLog('AI の判定待ち', id);
       }
       return { needsRescan };
+    },
+
+    setRules(rules) {
+      currentRules = rules;
+      rulesVersion += 1;
     },
 
     countThreads(threads) {
