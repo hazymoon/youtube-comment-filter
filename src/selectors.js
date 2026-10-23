@@ -133,6 +133,13 @@ export const ID_ATTR = 'data-ycf-id';
 /** thread に付ける、判定した本文のハッシュ */
 export const HASH_ATTR = 'data-ycf-hash';
 
+/**
+ * thread に付ける、判定したときの判定から外す条件のデータ（所有者・固定・認証済み）。
+ * 条件のデータは本文より遅れて届きうるので、変わったら判定し直す。
+ * HASH_ATTR は AI の判定のキャッシュのキーなので、条件のデータはそこに混ぜずこの属性で比べる
+ */
+export const EXEMPT_INPUT_ATTR = 'data-ycf-exempt-input';
+
 /** thread に付ける。付いている間は本文を全文表示に固定する */
 export const EXPANDED_ATTR = 'data-ycf-expanded';
 
