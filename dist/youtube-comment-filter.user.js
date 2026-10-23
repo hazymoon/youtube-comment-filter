@@ -1821,10 +1821,13 @@ function buildStyles() {
     const container = `${thread}[${STATE_ATTR}="shown"][${EXPANDED_ATTR}] > #${COMMENT_CONTAINER_ID}`;
     return [contentOf(container), hoverOf(container)];
   });
-  // ホバーで見せる行のマスク。--ycf-reveal が 0 から HOVER_LINES まで増えるにつれ、i 行目は i から i+1 の間で
-  // 左から右へ見えていく（読む順）。1 行目は既定の表示で見えている文頭の幅から始める
+  // 行ごとに見せるマスク。既定の表示とホバーの両方に掛ける。--ycf-reveal が 0 から HOVER_LINES まで増えるにつれ、
+  // i 行目は i から i+1 の間で左から右へ見えていく（読む順）。1 行目は文頭の PREVIEW_CHARS 文字ほどの幅から始めるので、
+  // 見せる量が 0 の既定の表示では文頭だけが見え、2 行目以降は隠れる。
+  // @property が効かないブラウザでは --ycf-reveal が未定義になり、mask-image ごと無効になって全文が見えてしまう。
+  // 既定値 0 を持たせ、そのときも既定の表示は文頭だけに留める
   const revealMasks = Array.from({ length: HOVER_LINES }, (_, line) => {
-    const progress = `clamp(0, var(--ycf-reveal) - ${line}, 1) * 100%`;
+    const progress = `clamp(0, var(--ycf-reveal, 0) - ${line}, 1) * 100%`;
     const stop = line === 0 ? `max(${PREVIEW_CHARS}em, calc(${progress}))` : `calc(${progress})`;
     return `linear-gradient(to right, #000 ${stop}, transparent ${stop})`;
   }).join(', ');
@@ -1891,19 +1894,30 @@ ${hiddenThread} {
 }
 
 /* 表示: 段階表示（既定は文頭の PREVIEW_CHARS 文字ほど、ホバーで 4 行、クリックで全文）。
-   1 行に収まる短いコメントでも全文が見えないよう、既定では行数に加えて幅も制限する。
+   ホバーで本文の高さが伸縮してレイアウトが動かないよう、既定でもホバーと同じ 4 行ぶんの箱を確保し、
+   見せる量は行ごとのマスクだけで変える。1 行に収まる短いコメントでも全文が見えないよう、
+   既定では 1 行目のマスクで文頭の PREVIEW_CHARS 文字ほどの幅だけを見せ、2 行目以降を隠す。
+   行の高さはマスクの帯の高さと揃える。
    見せる量の transition はホバーの規則にだけ書く（マウスを外したら待たずに文頭だけに戻すため） */
 ${shownContent} {
   display: -webkit-box !important;
   -webkit-box-orient: vertical !important;
   overflow: hidden !important;
   max-height: none !important;
-  max-width: ${PREVIEW_CHARS}em !important;
+  max-width: none !important;
   line-height: ${LINE_HEIGHT_REM}rem !important;
-  -webkit-line-clamp: 1 !important;
+  -webkit-line-clamp: ${HOVER_LINES} !important;
   cursor: pointer;
+  -webkit-mask-image: ${revealMasks};
+  mask-image: ${revealMasks};
+  -webkit-mask-size: 100% ${LINE_HEIGHT_REM}rem;
+  mask-size: 100% ${LINE_HEIGHT_REM}rem;
+  -webkit-mask-position: ${revealPositions};
+  mask-position: ${revealPositions};
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
-/* ホバー: 待ち時間の後、1 行ずつ左から右へ見せる。行の高さをマスクの帯の高さと揃える */
+/* ホバー: 待ち時間の後、1 行ずつ左から右へ見せる。行数・幅・マスクは既定の表示と同じにし、見せる量だけを増やす */
 ${hoverContent} {
   max-width: none !important;
   -webkit-line-clamp: ${HOVER_LINES} !important;
