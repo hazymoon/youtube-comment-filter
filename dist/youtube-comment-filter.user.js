@@ -1217,10 +1217,10 @@ const OWNER_BADGE_LINK_SELECTOR = '#author-comment-badge ytd-author-comment-badg
 const HEADER_AUTHOR_SELECTOR = '#header-author';
 
 /**
- * 固定コメントの印。未確認（工程 3 で確認）: docs/dom-structure.md は固定コメントを記録していない。
- * 旧世代の ytd-comment-renderer の #pinned-comment-badge の中身から置いた。外れても固定コメントを判定するだけで、隠れすぎはしない
+ * 固定コメントの印。確認済み（docs/dom-structure.md「固定コメントの印」）。印は固定コメントにだけ置かれる。
+ * 外れても固定コメントを判定するだけで隠れすぎはしないが、ほかのコメントにも当たると、それらまで判定から外れてどの判定も効かなくなる
  */
-const PINNED_BADGE_SELECTOR = 'ytd-pinned-comment-badge-renderer';
+const PINNED_BADGE_SELECTOR = '#pinned-comment-badge ytw-pinned-comment-badge-renderer';
 
 /** 投稿日時のリンク（href に lc=<commentId>）。確認済み（同上） */
 const PUBLISHED_TIME_LINK_SELECTOR = '#published-time-text a';
@@ -1465,8 +1465,7 @@ function readIsOwner(viewModel) {
 }
 
 /**
- * 固定コメントか。固定の印の要素があり、hidden でないときに固定とみなす。
- * 印のセレクタは未確認（selectors.js の PINNED_BADGE_SELECTOR）。
+ * 固定コメントか。固定の印の要素（selectors.js の PINNED_BADGE_SELECTOR）があり、hidden でないときに固定とみなす。
  * @param {any} viewModel ytd-comment-view-model
  * @returns {boolean}
  */

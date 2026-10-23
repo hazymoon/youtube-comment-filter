@@ -174,8 +174,7 @@ function readIsOwner(viewModel) {
 }
 
 /**
- * 固定コメントか。固定の印の要素があり、hidden でないときに固定とみなす。
- * 印のセレクタは未確認（selectors.js の PINNED_BADGE_SELECTOR）。
+ * 固定コメントか。固定の印の要素（selectors.js の PINNED_BADGE_SELECTOR）があり、hidden でないときに固定とみなす。
  * @param {any} viewModel ytd-comment-view-model
  * @returns {boolean}
  */

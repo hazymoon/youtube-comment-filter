@@ -64,6 +64,19 @@ div#body
 - YouTube 自身の折りたたみは `ytd-expander#expander > #content` の 4 行で、溢れたときに `#more` が出る。段階表示はこの `#content` の行数を上書きし、`#more` / `#less` を隠して置き換える
 - @返信の宛先リンクは本文の先頭の `a.ytAttributedStringLink` で、href は `/channel/UC…` だった
 
+### 固定コメントの印
+
+2026-10-23 に、固定コメントのある動画で確認した（トップレベル 20 件のうち 1 件が固定。Chrome、page 世界）。
+
+```text
+div#main > div#header
+└ div#pinned-comment-badge                       … どのコメントにもある（固定でなければ空）
+  └ ytw-pinned-comment-badge-renderer            … 固定コメントにだけある（「@handle さんによって固定されています」）
+```
+
+- 印のタグは `ytw-` で始まる。旧世代の `ytd-pinned-comment-badge-renderer` は無かった
+- 空の `div#pinned-comment-badge` は全コメントにあるので、固定かどうかはその中の `ytw-pinned-comment-badge-renderer` の有無で見分ける
+
 ## データ（page 世界でのみ読める）
 
 | 値 | 取得元 |

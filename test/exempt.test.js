@@ -162,3 +162,8 @@ test('設定で外していない対象は通常どおり判定する', () => {
   assert.equal(owner.getAttribute(STATE_ATTR), 'hidden');
   assert.equal(owner.getAttribute(REASON_ATTR), 'ngWord');
 });
+
+test('固定の印のセレクタは、実ページの #pinned-comment-badge の中の ytw-pinned-comment-badge-renderer を指す', () => {
+  // ytd- で始まる旧世代のタグは、実ページの固定コメントに無い（docs/dom-structure.md）
+  assert.equal(PINNED_BADGE_SELECTOR, '#pinned-comment-badge ytw-pinned-comment-badge-renderer');
+});
