@@ -3129,8 +3129,16 @@ function main() {
       commentsEl = found;
       if (found) {
         commentsObserver = new MutationObserver(onCommentsMutation);
-        // 自分が書き換える data-ycf-* 属性で再スキャンが回り続けないよう、attributes は監視しない
-        commentsObserver.observe(found, { childList: true, subtree: true, characterData: true });
+        // 自分が書き換える data-ycf-* 属性で再スキャンが回り続けないよう、属性は hidden だけを監視する。
+        // 固定の印と所有者の代替判定は hidden の有無で決まり（dom.js の readIsPinned / readIsOwner）、要素が残ったまま
+        // hidden だけが付け外しされうるため。コメント欄の中の hidden はこのスクリプトでは書き換えない
+        commentsObserver.observe(found, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+          attributes: true,
+          attributeFilter: ['hidden'],
+        });
       }
     }
     if (commentsEl && !commentsEl.isConnected) {
@@ -3167,7 +3175,8 @@ function main() {
     // NG 登録のボタンの差し込みは自分の変化なので除く（スキャンが差し込むたびにもう 1 回スキャンが回らないように）
     const relevant = records.filter((record) => !isBlockButtonInsertion(record));
     if (relevant.length === 0) return;
-    // 差し込まれた要素も渡す。target は差し込み先の親なので、差し込まれた thread は target からは見つからない
+    // 差し込まれた要素も渡す。target は差し込み先の親なので、差し込まれた thread は target からは見つからない。
+    // hidden の変化の通知では target が変化した要素なので、それを含む thread を確かめる
     processor.revalidate(relevant.flatMap((record) => [record.target, ...record.addedNodes]));
     scheduleScan();
   }
