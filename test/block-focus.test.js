@@ -19,9 +19,9 @@ function declarationsOf(css, selector) {
   return css.slice(open, css.indexOf('}', open));
 }
 
-test('コメント内にフォーカスがあるときも、判定から外したもの以外の表示中のコメントの NG ボタンを見せる', () => {
+test('コメント内にキーボードのフォーカスがあるときも、判定から外したもの以外の表示中のコメントの NG ボタンを見せる', () => {
   const css = buildStyles();
-  const focusSelector = `${T}[data-ycf-state="shown"]:not([data-ycf-reason="exempt"]) > #comment-container ytd-comment-view-model:focus-within .${BLOCK_BUTTON_CLASS}`;
+  const focusSelector = `${T}[data-ycf-state="shown"]:not([data-ycf-reason="exempt"]) > #comment-container ytd-comment-view-model:has(:focus-visible) .${BLOCK_BUTTON_CLASS}`;
   assert.match(declarationsOf(css, focusSelector), /display:\s*inline-block\s*!important/);
 });
 
@@ -31,9 +31,9 @@ test('フォーカスで見せるセレクタはすべて thread から #comment
     .split(/[{}]/)
     .flatMap((part) => part.split(','))
     .map((s) => s.trim())
-    .filter((s) => s.includes(':focus-within') && s.includes(BLOCK_BUTTON_CLASS));
+    .filter((s) => s.includes(':focus-visible') && s.includes(BLOCK_BUTTON_CLASS));
   assert.ok(selectors.length > 0, 'フォーカスで見せるセレクタがある');
   for (const selector of selectors) {
-    assert.match(selector, /\[data-ycf-state="shown"\]:not\(\[data-ycf-reason="exempt"\]\) > #comment-container ytd-comment-view-model:focus-within /, selector);
+    assert.match(selector, /\[data-ycf-state="shown"\]:not\(\[data-ycf-reason="exempt"\]\) > #comment-container ytd-comment-view-model:has\(:focus-visible\) /, selector);
   }
 });
