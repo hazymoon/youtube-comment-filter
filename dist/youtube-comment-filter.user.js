@@ -1296,11 +1296,12 @@ const ID_ATTR = 'data-ycf-id';
 const HASH_ATTR = 'data-ycf-hash';
 
 /**
- * thread に付ける、判定したときの判定から外す条件のデータ（所有者・固定・認証済み）。
- * 条件のデータは本文より遅れて届きうるので、変わったら判定し直す。
- * HASH_ATTR は AI の判定のキャッシュのキーなので、条件のデータはそこに混ぜずこの属性で比べる
+ * thread に付ける、判定したときの judgeExemption の結果（判定から外さないときは空文字）。
+ * 判定から外す条件のデータ（所有者・固定・認証済み・投稿者）は本文より遅れて届きうるので、結果が変わったら判定し直す。
+ * 条件のデータではなく結果を比べるのは、設定で外していない条件や結果を変えない変化で判定し直さないため。
+ * HASH_ATTR は AI の判定のキャッシュのキーなので、結果はそこに混ぜずこの属性で比べる
  */
-const EXEMPT_INPUT_ATTR = 'data-ycf-exempt-input';
+const EXEMPTION_ATTR = 'data-ycf-exemption';
 
 /** thread に付ける。付いている間は本文を全文表示に固定する */
 const EXPANDED_ATTR = 'data-ycf-expanded';
@@ -2318,14 +2319,12 @@ function createLanguageModelController({ categories, enabled, onStateChange, get
 const AI_HIDDEN_EXCERPT_CHARS = 60;
 
 /**
- * 判定から外す条件のデータ（所有者・固定・認証済み）を、EXEMPT_INPUT_ATTR に記録する文字列にする。
- * 設定（どの対象を外すか）は判定器を作り直さない限り変わらないので含めない。
- * @param {import('./dom.js').ExtractedComment} extracted 読んだコメント
+ * judgeExemption の結果を、EXEMPTION_ATTR に記録する文字列にする。判定から外さないときは空文字。
+ * @param {string|null} exemption judgeExemption の結果
  * @returns {string}
  */
-function exemptInputOf(extracted) {
-  const flag = (value) => (value ? '1' : '0');
-  return `${flag(extracted.author.isOwner)}${flag(extracted.isPinned)}${flag(extracted.author.isVerified)}`;
+function exemptionRecordOf(exemption) {
+  return exemption ?? '';
 }
 
 /**
@@ -2379,7 +2378,7 @@ function threadOfTarget(target) {
  *   thread を文書順に判定して表示状態を反映し、AI の順番待ちに入れるコメントを返す。
  *   隠したスレッドの中は飛ばし、ID と本文が前回と同じで表示か非表示に確定済みのものも飛ばす。
  *   ID か本文が変わっていたら（Polymer の要素の再利用）全文表示の固定を外して判定し直す。
- *   判定から外す条件のデータ（所有者・固定・認証済み）だけが変わったら、全文表示の固定は保ったまま判定し直す。
+ *   判定から外すかどうかの結果（judgeExemption）だけが変わったら、全文表示の固定は保ったまま判定し直す。
  *   返す順は文書順で、前に AI の判定が得られなかったコメントは新しいコメントの後に回す
  * @property {(threads: Iterable<Element>, id: string, verdict: { hide: boolean, category: string|null }, item: { id: string, text: string }) => { needsRescan: boolean }} applyVerdict
  *   AI の判定を、判定したコメントと一致する thread に反映する
@@ -2389,7 +2388,7 @@ function threadOfTarget(target) {
  *   件数バーの件数を集計する。total は集計したコメントの数（隠したスレッドの中の返信は数えない）
  * @property {(targets: Iterable<any>) => void} revalidate
  *   変化した要素を含む thread について、表示中のコメントが判定したものと同じかを同期で確かめ、
- *   違えば判定前（CSS で隠れる状態）に戻す。判定から外す条件のデータだけが変わったときは、
+ *   違えば判定前（CSS で隠れる状態）に戻す。判定から外すかどうかの結果だけが変わったときは、
  *   判定から外して表示していたものが外れなくなった場合だけ判定前に戻し、ほかは次のスキャンに任せる
  * @property {(rules: import('./rules.js').CompiledRules) => void} setRules
  *   ルールを差し替える。表示か非表示に確定済みのコメントも、次の processThreads で新しいルールで判定し直す。
@@ -2463,7 +2462,7 @@ function createThreadProcessor({
       if (thread.hasAttribute(ID_ATTR)) {
         thread.removeAttribute(ID_ATTR);
         thread.removeAttribute(HASH_ATTR);
-        thread.removeAttribute(EXEMPT_INPUT_ATTR);
+        thread.removeAttribute(EXEMPTION_ATTR);
         thread.removeAttribute(EXPANDED_ATTR);
       }
       if (thread.getAttribute(REASON_ATTR) !== 'unreadable') debugLog('読めないコメント', extracted.unreadable);
@@ -2474,12 +2473,14 @@ function createThreadProcessor({
     const prevState = thread.getAttribute(STATE_ATTR);
     const same = thread.getAttribute(ID_ATTR) === extracted.id && thread.getAttribute(HASH_ATTR) === extracted.textHash;
     const settled = same && (prevState === 'shown' || prevState === 'hidden');
-    // 判定から外す条件のデータは本文より遅れて届きうる。変わったら確定済みでも判定し直す（settled は変えないので、
-    // 判定から外れなかったものは下の keepsVerdictWithoutRules の経路で AI の判定を保つ）
-    const exemptInput = exemptInputOf(extracted);
-    const exemptInputChanged = thread.getAttribute(EXEMPT_INPUT_ATTR) !== exemptInput;
-    if (settled && !exemptInputChanged && judgedRulesVersion.get(thread) === rulesVersion) return;
-    if (exemptInputChanged) thread.setAttribute(EXEMPT_INPUT_ATTR, exemptInput);
+    // 判定から外す条件のデータは本文より遅れて届きうる。判定から外すかどうかの結果が変わったら確定済みでも
+    // 判定し直す（settled は変えないので、判定から外れなかったものは下の keepsVerdictWithoutRules の経路で AI の判定を保つ）。
+    // 条件のデータではなく結果を比べ、設定で外していない条件や結果を変えない変化では判定し直さない
+    const exemption = judgeExemption(extracted, currentRules, exempt);
+    const exemptionRecord = exemptionRecordOf(exemption);
+    const exemptionChanged = thread.getAttribute(EXEMPTION_ATTR) !== exemptionRecord;
+    if (settled && !exemptionChanged && judgedRulesVersion.get(thread) === rulesVersion) return;
+    if (exemptionChanged) thread.setAttribute(EXEMPTION_ATTR, exemptionRecord);
     if (!same) {
       thread.setAttribute(ID_ATTR, extracted.id);
       thread.setAttribute(HASH_ATTR, extracted.textHash);
@@ -2491,7 +2492,6 @@ function createThreadProcessor({
     }
     const aiUnresolved = same && thread.getAttribute(REASON_ATTR) === 'ai-unresolved';
 
-    const exemption = judgeExemption(extracted, currentRules, exempt);
     /** @type {ReturnType<typeof judgeByRules>} */
     const ruleResult = exemption === null ? judgeByRules(extracted, currentRules) : { reason: null };
     if (settled && exemption === null && ruleResult.reason === null && keepsVerdictWithoutRules(thread)) {
@@ -2630,14 +2630,15 @@ function createThreadProcessor({
           thread.getAttribute(ID_ATTR) === extracted.id &&
           thread.getAttribute(HASH_ATTR) === extracted.textHash
         ) {
-          if (thread.getAttribute(EXEMPT_INPUT_ATTR) === exemptInputOf(extracted)) continue;
-          // 判定から外す条件のデータだけが変わった。判定から外して表示していたものが外れなくなったときだけ、
+          const exemptionRecord = exemptionRecordOf(judgeExemption(extracted, currentRules, exempt));
+          if (thread.getAttribute(EXEMPTION_ATTR) === exemptionRecord) continue;
+          // 判定から外すかどうかの結果だけが変わった。判定から外して表示していたものが外れなくなったときだけ、
           // 判定していない本文が見えたままにならないよう判定前に戻す。ほかは状態を保ち、次のスキャンが
           // 属性の違いを見て判定し直す（AI の判定を保つため。判定前に戻すと AI に送り直しうる）。
           // 本文は同じなので全文表示の固定と data-ycf-id / data-ycf-hash は残す
           const exemptedNow =
             thread.getAttribute(STATE_ATTR) === 'shown' && thread.getAttribute(REASON_ATTR) === 'exempt';
-          if (!exemptedNow || judgeExemption(extracted, currentRules, exempt) !== null) continue;
+          if (!exemptedNow || exemptionRecord !== '') continue;
           thread.removeAttribute(STATE_ATTR);
           thread.removeAttribute(REASON_ATTR);
           debugLog('判定から外す条件が外れたので判定前に戻す', extracted.id);
