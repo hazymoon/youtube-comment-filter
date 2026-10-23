@@ -57,7 +57,7 @@ export const MODULE_ORDER = [
 export const USERSCRIPT_META = [
   ['name', 'YouTube Comment Filter'],
   ['namespace', 'https://github.com/hazymoon/youtube-comment-filter'],
-  ['version', '0.2.0'],
+  ['version', '0.3.0'],
   ['description', 'YouTube のコメント欄を、NG ユーザ・NG ワードと端末内の AI（Chrome の Prompt API）の判定で絞り込みます'],
   ['homepageURL', 'https://github.com/hazymoon/youtube-comment-filter'],
   ['supportURL', 'https://github.com/hazymoon/youtube-comment-filter/issues'],
