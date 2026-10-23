@@ -42,9 +42,9 @@ test('hidden の thread は display:none', () => {
   assert.match(blockOf(`${T}[data-ycf-state="hidden"] {`), /display:\s*none/);
 });
 
-test('shown の本文は既定 1 行・ホバーで 4 行・全文固定で解除し、#more / #less を隠す', () => {
+test('shown の本文は既定もホバーも 4 行の箱・全文固定で解除し、#more / #less を隠す', () => {
   const content = `${T}[data-ycf-state="shown"] > #comment-container ytd-expander#expander > #content`;
-  assert.match(blockOf(`${content} {`), /-webkit-line-clamp:\s*1/);
+  assert.match(blockOf(`${content} {`), /-webkit-line-clamp:\s*4/);
   assert.match(
     blockOf(`${T}[data-ycf-state="shown"] > #comment-container ytd-comment-view-model:hover ytd-expander#expander > #content`),
     /-webkit-line-clamp:\s*4/,
