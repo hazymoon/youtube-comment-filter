@@ -113,8 +113,9 @@ test('通常のコメントから ID・本文・投稿者を読む', () => {
     id: 'UgxCOMMENT1',
     text: '本文です',
     textHash: hashString('本文です'),
-    author: { handle: '@alice', channelId: CHANNEL_ID },
+    author: { handle: '@alice', channelId: CHANNEL_ID, isOwner: false, isVerified: false },
     isReply: false,
+    isPinned: false,
     leadingMentionHref: null,
   });
 });

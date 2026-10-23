@@ -6,7 +6,7 @@
 import { countStates, decideState } from './decide.js';
 import { extractComment, isInsideHiddenThread } from './dom.js';
 import { hashString } from './hash.js';
-import { judgeByRules } from './rules.js';
+import { judgeByRules, judgeExemption } from './rules.js';
 import { EXPANDED_ATTR, HASH_ATTR, ID_ATTR, REASON_ATTR, STATE_ATTR, THREAD_TAG } from './selectors.js';
 
 /** AI が隠したコメントを DEBUG で出すときの本文の文字数の上限。誤判定かを見分けられる程度に短くする */
@@ -73,20 +73,39 @@ function threadOfTarget(target) {
  * @property {(targets: Iterable<any>) => void} revalidate
  *   変化した要素を含む thread について、表示中のコメントが判定したものと同じかを同期で確かめ、
  *   違えば判定前（CSS で隠れる状態）に戻す
+ * @property {(rules: import('./rules.js').CompiledRules) => void} setRules
+ *   ルールを差し替える。表示か非表示に確定済みのコメントも、次の processThreads で新しいルールで判定し直す。
+ *   新しいルールに当たらず、状態が AI の判定などルールに依らずに決まっていたものは、その状態を保つ
  */
 
 /**
  * thread の判定と表示状態の反映を作る。
  * @param {object} options
  * @param {import('./rules.js').CompiledRules} options.rules compileRules の結果
+ * @param {import('./rules.js').ExemptOptions} [options.exempt] 判定から外す対象。省略時はどれも外さない（許可ユーザは常に外す）
  * @param {{ get: (id: string, textHash: string) => ({ hide: boolean, category: string|null }|null), set: (id: string, textHash: string, verdict: { hide: boolean, category: string|null }) => void }} options.cache
  *   AI の判定のキャッシュ
  * @param {() => import('./decide.js').AiMode} options.getAiMode AI 判定の状態
  * @param {(...args: unknown[]) => void} [options.debugLog] 判定の経過を出す。本文は、AI が隠したコメントの冒頭
  *   （AI_HIDDEN_EXCERPT_CHARS 文字まで）だけを渡す
+ * @param {(thread: Element) => void} [options.onShown] AI の判定で表示にした thread を受け取る。
+ *   AI の判定はスキャンの外で反映されるため、スキャンで付けるもの（NG 登録のボタン）をここで付ける
  * @returns {ThreadProcessor}
  */
-export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () => {} }) {
+export function createThreadProcessor({
+  rules,
+  exempt = { owner: false, pinned: false, verified: false },
+  cache,
+  getAiMode,
+  debugLog = () => {},
+  onShown = () => {},
+}) {
+  let currentRules = rules;
+  /** ルールを差し替えた回数。thread ごとに、判定したときの rulesVersion を judgedRulesVersion に持つ */
+  let rulesVersion = 0;
+  /** @type {WeakMap<Element, number>} */
+  const judgedRulesVersion = new WeakMap();
+
   /**
    * AI が隠したコメントのカテゴリと本文の冒頭を出す。隠したコメントを画面で確かめる手段が無いので、
    * AI の誤判定を利用者が確かめられるようにするため（DEBUG のときだけ出る。保存はしない）。
@@ -97,6 +116,19 @@ export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () =
     const chars = [...text];
     const excerpt = chars.length > AI_HIDDEN_EXCERPT_CHARS ? `${chars.slice(0, AI_HIDDEN_EXCERPT_CHARS).join('')}…` : text;
     debugLog('AI が隠したコメント', category, excerpt);
+  }
+
+  /**
+   * 確定済みの thread の状態が、ルールにも判定から外す条件にも依らずに決まったものか
+   * （表示で理由が無い、または AI の判定で非表示）。ルールで隠していたものと判定から外していたものは、
+   * 新しいルールで外れたら AI の判定が要るので含めない。
+   * @param {Element} thread ytd-comment-thread-renderer
+   * @returns {boolean}
+   */
+  function keepsVerdictWithoutRules(thread) {
+    const state = thread.getAttribute(STATE_ATTR);
+    const reason = thread.getAttribute(REASON_ATTR);
+    return (state === 'shown' && reason === null) || (state === 'hidden' && reason === 'ai');
   }
 
   /**
@@ -122,7 +154,8 @@ export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () =
 
     const prevState = thread.getAttribute(STATE_ATTR);
     const same = thread.getAttribute(ID_ATTR) === extracted.id && thread.getAttribute(HASH_ATTR) === extracted.textHash;
-    if (same && (prevState === 'shown' || prevState === 'hidden')) return;
+    const settled = same && (prevState === 'shown' || prevState === 'hidden');
+    if (settled && judgedRulesVersion.get(thread) === rulesVersion) return;
     if (!same) {
       thread.setAttribute(ID_ATTR, extracted.id);
       thread.setAttribute(HASH_ATTR, extracted.textHash);
@@ -134,14 +167,27 @@ export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () =
     }
     const aiUnresolved = same && thread.getAttribute(REASON_ATTR) === 'ai-unresolved';
 
-    const ruleResult = judgeByRules(extracted, rules);
+    const exemption = judgeExemption(extracted, currentRules, exempt);
+    /** @type {ReturnType<typeof judgeByRules>} */
+    const ruleResult = exemption === null ? judgeByRules(extracted, currentRules) : { reason: null };
+    if (settled && exemption === null && ruleResult.reason === null && keepsVerdictWithoutRules(thread)) {
+      // ルールの差し替えで判定し直したが、新しいルールにも当たらない。AI の判定（表示・非表示）はルールに依らないので
+      // そのまま保つ。キャッシュから消えていると判定待ちに戻って隠れ、AI に送り直すことになるため
+      judgedRulesVersion.set(thread, rulesVersion);
+      return;
+    }
     const needsCache =
-      ruleResult.reason === null && extracted.text !== '' && aiMode !== 'disabled' && aiMode !== 'failed';
+      exemption === null &&
+      ruleResult.reason === null &&
+      extracted.text !== '' &&
+      aiMode !== 'disabled' &&
+      aiMode !== 'failed';
     const cached = needsCache ? cache.get(extracted.id, extracted.textHash) : null;
-    const decision = decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved });
+    const decision = decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved, exempt: exemption !== null });
     applyThreadState(thread, decision.state, decision.reason);
+    judgedRulesVersion.set(thread, rulesVersion);
     if (decision.state !== 'pending' || !same) {
-      debugLog('判定', extracted.id, decision.state, decision.reason ?? '', ruleResult.detail ?? '');
+      debugLog('判定', extracted.id, decision.state, decision.reason ?? '', exemption ?? ruleResult.detail ?? '');
     }
     if (decision.state === 'hidden' && decision.reason === 'ai') logAiHidden(cached?.category ?? null, extracted.text);
     if (decision.enqueue) {
@@ -184,7 +230,10 @@ export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () =
         }
         if (thread.getAttribute(STATE_ATTR) !== 'pending') continue;
         if (verdict.hide) applyThreadState(thread, 'hidden', 'ai');
-        else applyThreadState(thread, 'shown', undefined);
+        else {
+          applyThreadState(thread, 'shown', undefined);
+          onShown(thread);
+        }
         debugLog('AI の判定', id, verdict.hide ? `hidden(${verdict.category})` : 'shown');
         if (verdict.hide) logAiHidden(verdict.category, item.text);
       }
@@ -209,6 +258,11 @@ export function createThreadProcessor({ rules, cache, getAiMode, debugLog = () =
         debugLog('AI の判定待ち', id);
       }
       return { needsRescan };
+    },
+
+    setRules(rules) {
+      currentRules = rules;
+      rulesVersion += 1;
     },
 
     countThreads(threads) {

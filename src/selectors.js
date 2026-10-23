@@ -48,8 +48,20 @@ export const VIEW_MODEL_ID = 'comment';
 /** 投稿者のリンク（href が /@handle）。確認済み（docs/dom-structure.md「ytd-comment-view-model#comment の中」） */
 export const AUTHOR_LINK_SELECTOR = '#header-author h3 a#author-text';
 
-/** チャンネル所有者のコメントでの投稿者のリンク（href が /@handle）。確認済み（同上） */
+/**
+ * 所有者・認証済みのチャンネルのコメントでの投稿者のリンク（href が /@handle）。確認済み（同上）。
+ * 認証済みのチャンネルにも付くので、所有者かは commentEntity.author.isCreator で決める（dom.js の readIsOwner）
+ */
 export const OWNER_BADGE_LINK_SELECTOR = '#author-comment-badge ytd-author-comment-badge-renderer a#name';
+
+/** 投稿者の名前の行。NG 登録のボタンをここに差し込む。確認済み（docs/dom-structure.md「ytd-comment-view-model#comment の中」） */
+export const HEADER_AUTHOR_SELECTOR = '#header-author';
+
+/**
+ * 固定コメントの印。確認済み（docs/dom-structure.md「固定コメントの印」）。印は固定コメントにだけ置かれる。
+ * 外れても固定コメントを判定するだけで隠れすぎはしないが、ほかのコメントにも当たると、それらまで判定から外れてどの判定も効かなくなる
+ */
+export const PINNED_BADGE_SELECTOR = '#pinned-comment-badge ytw-pinned-comment-badge-renderer';
 
 /** 投稿日時のリンク（href に lc=<commentId>）。確認済み（同上） */
 export const PUBLISHED_TIME_LINK_SELECTOR = '#published-time-text a';
@@ -123,6 +135,9 @@ export const HASH_ATTR = 'data-ycf-hash';
 
 /** thread に付ける。付いている間は本文を全文表示に固定する */
 export const EXPANDED_ATTR = 'data-ycf-expanded';
+
+/** コメントに差し込む NG 登録のボタンの class */
+export const BLOCK_BUTTON_CLASS = 'ycf-block';
 
 /** 件数バーの要素の id */
 export const BAR_ID = 'ycf-bar';
