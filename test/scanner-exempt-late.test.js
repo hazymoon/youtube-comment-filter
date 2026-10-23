@@ -177,7 +177,7 @@ test('(b) 条件のデータが変わっても判定から外れない AI の判
   assert.equal(shownThread.getAttribute(REASON_ATTR), null);
 });
 
-test('(b) 条件のデータが変わっても判定から外れないルールの判定は、ルールで判定し直して保つ', () => {
+test('(b) 条件のデータが変わっても判定から外れないルールの判定は、判定し直さずに保つ', () => {
   const { processor } = makeProcessor({ ngWords: ['本文'], exempt: NONE });
   const thread = makeThread();
   processor.processThreads([thread]);
@@ -206,12 +206,12 @@ test('(c) 条件のデータが変わらないコメントは、確定済みと�
   assert.equal(thread.getAttribute(STATE_ATTR), 'shown');
 });
 
-test('(c) 条件のデータが変わった後の判定し直しは 1 回だけで、その後は確定済みとして飛ばす', () => {
+test('(c) 判定から外す結果を変えない条件のデータが届いても、確定済みとして飛ばして AI の判定を保つ', () => {
   const { processor, cacheGets, logs } = makeProcessor({ exempt: { ...ALL, verified: false } });
   const thread = makeThread();
   processor.processThreads([thread]);
   processor.applyVerdict([thread], 'c1', { hide: true, category: '暴言' }, { id: 'c1', text: '本文' });
-  // 判定から外れない条件のデータが届き、判定し直して AI の判定を保つ
+  // 設定で外していない条件のデータが届いても判定から外す結果は変わらないので、判定し直さず AI の判定を保つ
   thread.author.isVerified = true;
   processor.processThreads([thread]);
   assert.equal(thread.getAttribute(REASON_ATTR), 'ai');
@@ -233,7 +233,7 @@ test('(d) revalidate は、判定から外して表示したコメントが外�
   assert.equal(thread.getAttribute(REASON_ATTR), 'exempt');
   thread.setAttribute(EXPANDED_ATTR, '');
 
-  // 要素の使い回しなどで固定の印が外れた。判定していない本文が見えたままにならないよう、通知の時点で戻す
+  // ID と本文は同じまま固定の印だけが外れた。判定していない本文が見えたままにならないよう、通知の時点で戻す
   delete thread.viewModel.query[PINNED_BADGE_SELECTOR];
   processor.revalidate([badge.parentElement]);
   assert.equal(thread.getAttribute(STATE_ATTR), null, 'CSS で隠れる判定前に戻す');
