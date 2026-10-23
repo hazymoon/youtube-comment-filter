@@ -95,6 +95,20 @@ test('commentEntity.author.isVerified が true のときだけ isVerified にな
   assert.equal(extractComment(makeThread()).author.isVerified, false);
 });
 
+test('commentEntity.author.isCreator が読めれば、所有者かはバッジでなく isCreator で決める', () => {
+  // thread > #comment-container > ytd-comment-view-model の commentEntity.author
+  const authorOf = (thread) => thread.children[0].children[0].polymerController.__data.commentEntity.author;
+  // 認証済みのチャンネルにも所有者と同じバッジ（#author-comment-badge の a#name）が付く（docs/dom-structure.md）
+  const verifiedBadge = makeThread({ owner: true, verified: true });
+  authorOf(verifiedBadge).isCreator = false;
+  assert.equal(extractComment(verifiedBadge).author.isOwner, false, 'バッジがあっても isCreator が false なら所有者にしない');
+  assert.equal(extractComment(verifiedBadge).author.isVerified, true);
+
+  const creator = makeThread({ owner: true });
+  authorOf(creator).isCreator = true;
+  assert.equal(extractComment(creator).author.isOwner, true);
+});
+
 test('許可ユーザはハンドル（大文字小文字を区別しない）かチャンネル ID で一致する', () => {
   const rules = compileRules({ allowUsers: ['@Alice', CHANNEL_ID, 'bad'] });
   assert.equal(rules.matchAllowedUser({ handle: '@alice', channelId: null }), true);

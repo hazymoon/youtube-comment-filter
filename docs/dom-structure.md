@@ -45,7 +45,7 @@ div#body
 └ div#main
   ├ div#header > div#header-author
   │ ├ h3 > a#author-text[href="/@handle"]       … 投稿者（通常）
-  │ ├ span#author-comment-badge                  … 投稿者がチャンネル所有者のとき
+  │ ├ span#author-comment-badge                  … 投稿者がチャンネル所有者か、認証済みのチャンネルのとき
   │ │ └ ytd-author-comment-badge-renderer > a#name[href="/@handle"]
   │ │   （このとき a#author-text は hidden 属性付き。href は残っている）
   │ └ span#published-time-text > a[href="/watch?v=…&lc=<commentId>"]
@@ -85,6 +85,10 @@ div#main > div#header
 | 投稿者のチャンネル ID | `ytd-comment-view-model` の `.polymerController.__data.commentEntity.author.channelId` |
 | 投稿者のハンドル | データ内には無い。`a#author-text` か `a#name` の href（`/@handle`） |
 | 表示名 | `.polymerController.__data.commentEntity.author.displayName`（判定には使わない） |
+| 投稿者が動画のチャンネル所有者か | `.polymerController.__data.commentEntity.author.isCreator`（boolean） |
+| 投稿者が認証済みのチャンネルか | `.polymerController.__data.commentEntity.author.isVerified`（boolean） |
+
+- 2026-10-23 に 2 本の動画で確認した。所有者のコメントは `isCreator: true` だった。所有者ではない認証済みのチャンネル 4 件は、`isCreator: false`・`isVerified: true` で、所有者と同じ `span#author-comment-badge` のバッジ（`a#name`）が付いていた。所有者かどうかはバッジでは見分けられない
 
 ## Shorts のコメント欄
 

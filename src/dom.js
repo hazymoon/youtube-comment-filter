@@ -161,13 +161,17 @@ function readAuthorHandle(viewModel) {
 }
 
 /**
- * 投稿者が動画のチャンネル所有者か。所有者のコメントにはバッジの a#name が付き、a#author-text は hidden になる。
+ * 投稿者が動画のチャンネル所有者か。commentEntity.author.isCreator が読めればそれで決める。
+ * バッジの a#name は認証済みのチャンネルにも付くため、所有者の印にはならない（docs/dom-structure.md）。
+ * isCreator が読めないときだけバッジで判断する。所有者のコメントにはバッジの a#name が付き、a#author-text は hidden になる。
  * 要素の使い回しでバッジだけが残った場合に所有者と取り違えないよう、a#author-text が隠れていることも確かめる
  * （a#author-text が無いときはバッジだけで判断する）。
  * @param {any} viewModel ytd-comment-view-model
+ * @param {any} authorData commentEntity.author
  * @returns {boolean}
  */
-function readIsOwner(viewModel) {
+function readIsOwner(viewModel, authorData) {
+  if (typeof authorData?.isCreator === 'boolean') return authorData.isCreator;
   if (!viewModel?.querySelector?.(OWNER_BADGE_LINK_SELECTOR)) return false;
   const authorLink = viewModel.querySelector(AUTHOR_LINK_SELECTOR);
   return !authorLink || authorLink.getAttribute?.('hidden') !== null;
@@ -236,8 +240,8 @@ export function extractComment(threadEl) {
     author: {
       handle: readAuthorHandle(viewModel),
       channelId: nonEmptyString(authorData?.channelId),
-      isOwner: readIsOwner(viewModel),
-      // 未確認（工程 3 で確認）: isVerified は docs/dom-structure.md に記録が無い。channelId と同じ commentEntity.author から読む
+      isOwner: readIsOwner(viewModel, authorData),
+      // 確認済み（docs/dom-structure.md「データ」）。channelId と同じ commentEntity.author から読む
       isVerified: authorData?.isVerified === true,
     },
     isReply,

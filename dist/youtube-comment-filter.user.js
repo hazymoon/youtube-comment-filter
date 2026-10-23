@@ -1210,7 +1210,10 @@ const VIEW_MODEL_ID = 'comment';
 /** 投稿者のリンク（href が /@handle）。確認済み（docs/dom-structure.md「ytd-comment-view-model#comment の中」） */
 const AUTHOR_LINK_SELECTOR = '#header-author h3 a#author-text';
 
-/** チャンネル所有者のコメントでの投稿者のリンク（href が /@handle）。確認済み（同上） */
+/**
+ * 所有者・認証済みのチャンネルのコメントでの投稿者のリンク（href が /@handle）。確認済み（同上）。
+ * 認証済みのチャンネルにも付くので、所有者かは commentEntity.author.isCreator で決める（dom.js の readIsOwner）
+ */
 const OWNER_BADGE_LINK_SELECTOR = '#author-comment-badge ytd-author-comment-badge-renderer a#name';
 
 /** 投稿者の名前の行。NG 登録のボタンをここに差し込む。確認済み（docs/dom-structure.md「ytd-comment-view-model#comment の中」） */
@@ -1452,13 +1455,17 @@ function readAuthorHandle(viewModel) {
 }
 
 /**
- * 投稿者が動画のチャンネル所有者か。所有者のコメントにはバッジの a#name が付き、a#author-text は hidden になる。
+ * 投稿者が動画のチャンネル所有者か。commentEntity.author.isCreator が読めればそれで決める。
+ * バッジの a#name は認証済みのチャンネルにも付くため、所有者の印にはならない（docs/dom-structure.md）。
+ * isCreator が読めないときだけバッジで判断する。所有者のコメントにはバッジの a#name が付き、a#author-text は hidden になる。
  * 要素の使い回しでバッジだけが残った場合に所有者と取り違えないよう、a#author-text が隠れていることも確かめる
  * （a#author-text が無いときはバッジだけで判断する）。
  * @param {any} viewModel ytd-comment-view-model
+ * @param {any} authorData commentEntity.author
  * @returns {boolean}
  */
-function readIsOwner(viewModel) {
+function readIsOwner(viewModel, authorData) {
+  if (typeof authorData?.isCreator === 'boolean') return authorData.isCreator;
   if (!viewModel?.querySelector?.(OWNER_BADGE_LINK_SELECTOR)) return false;
   const authorLink = viewModel.querySelector(AUTHOR_LINK_SELECTOR);
   return !authorLink || authorLink.getAttribute?.('hidden') !== null;
@@ -1527,8 +1534,8 @@ function extractComment(threadEl) {
     author: {
       handle: readAuthorHandle(viewModel),
       channelId: nonEmptyString(authorData?.channelId),
-      isOwner: readIsOwner(viewModel),
-      // 未確認（工程 3 で確認）: isVerified は docs/dom-structure.md に記録が無い。channelId と同じ commentEntity.author から読む
+      isOwner: readIsOwner(viewModel, authorData),
+      // 確認済み（docs/dom-structure.md「データ」）。channelId と同じ commentEntity.author から読む
       isVerified: authorData?.isVerified === true,
     },
     isReply,

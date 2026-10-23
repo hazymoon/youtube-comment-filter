@@ -48,7 +48,10 @@ export const VIEW_MODEL_ID = 'comment';
 /** 投稿者のリンク（href が /@handle）。確認済み（docs/dom-structure.md「ytd-comment-view-model#comment の中」） */
 export const AUTHOR_LINK_SELECTOR = '#header-author h3 a#author-text';
 
-/** チャンネル所有者のコメントでの投稿者のリンク（href が /@handle）。確認済み（同上） */
+/**
+ * 所有者・認証済みのチャンネルのコメントでの投稿者のリンク（href が /@handle）。確認済み（同上）。
+ * 認証済みのチャンネルにも付くので、所有者かは commentEntity.author.isCreator で決める（dom.js の readIsOwner）
+ */
 export const OWNER_BADGE_LINK_SELECTOR = '#author-comment-badge ytd-author-comment-badge-renderer a#name';
 
 /** 投稿者の名前の行。NG 登録のボタンをここに差し込む。確認済み（docs/dom-structure.md「ytd-comment-view-model#comment の中」） */
