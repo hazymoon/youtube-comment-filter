@@ -1,6 +1,7 @@
 # YouTube Comment Filter
 
 YouTube のコメント欄を、NG ユーザ・NG ワードと端末内の AI（Chrome の Prompt API）の判定で絞り込む Violentmonkey 用のユーザスクリプトです。
+動画ページ（`/watch`）と Shorts（`/shorts/…`）のコメント欄が対象です。
 隠したコメントは文頭の数文字だけを見せ、ホバーすると少し待ってから全文を表示します。
 
 ## 必要なもの

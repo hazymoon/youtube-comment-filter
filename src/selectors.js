@@ -15,6 +15,18 @@ export const COMMENTS_SELECTOR = 'ytd-comments#comments';
 /** 対象にするコメント欄（動画ページのものだけ）。WATCH_FLEXY_TAG が未確認なのでこの組み合わせも未確認 */
 export const WATCH_COMMENTS_SELECTOR = `${WATCH_FLEXY_TAG} ${COMMENTS_SELECTOR}`;
 
+/**
+ * Shorts のページの本体。確認済み（docs/dom-structure.md「Shorts のコメント欄」）。
+ * 動画ページの ytd-watch-flexy と同時に DOM に残るので、どちらのコメント欄を対象にするかはページの種類で決める
+ */
+export const SHORTS_TAG = 'ytd-shorts';
+
+/**
+ * Shorts のコメント欄。engagement panel の中の ytd-comments で、id が無い。
+ * 確認済み（docs/dom-structure.md「Shorts のコメント欄」）
+ */
+export const SHORTS_COMMENTS_SELECTOR = `${SHORTS_TAG} ytd-comments`;
+
 /** 1 コメント（返信を含む）。確認済み（docs/dom-structure.md「1 コメント = 1 ytd-comment-thread-renderer」） */
 export const THREAD_TAG = 'ytd-comment-thread-renderer';
 
@@ -70,20 +82,29 @@ export const LESS_BUTTON_SELECTOR = 'tp-yt-paper-button#less';
  */
 export const INTERACTIVE_SELECTOR = 'a, button, tp-yt-paper-button, [role="button"], yt-button-shape';
 
-/** SPA の遷移の開始。未確認（工程 3 で確認）: docs/ に記録が無い */
+/** SPA の遷移の開始。Shorts の次の動画への移動で発火することは確認済み（docs/dom-structure.md「Shorts のコメント欄」）。動画ページでは未確認 */
 export const NAVIGATE_START_EVENT = 'yt-navigate-start';
 
-/** SPA の遷移の完了。未確認（工程 3 で確認）: docs/ に記録が無い */
+/** SPA の遷移の完了。Shorts の次の動画への移動で発火することは確認済み（同上）。動画ページでは未確認 */
 export const NAVIGATE_FINISH_EVENT = 'yt-navigate-finish';
 
 /** 動画ページのパス。対象のページかの判定に使う */
 export const WATCH_PATHNAME = '/watch';
+
+/** Shorts のページのパスの接頭辞（/shorts/<videoId>）。対象のページかの判定に使う */
+export const SHORTS_PATHNAME_PREFIX = '/shorts/';
 
 /**
  * html 要素に付ける。動画ページ（WATCH_PATHNAME）にいる間だけ付ける。
  * CSS が未確認の WATCH_FLEXY_TAG だけに頼らずに対象のコメント欄を決めるため
  */
 export const WATCH_ATTR = 'data-ycf-watch';
+
+/**
+ * html 要素に付ける。Shorts のページ（SHORTS_PATHNAME_PREFIX）にいる間だけ付ける。
+ * WATCH_ATTR と同じく、CSS が対象のコメント欄を決めるのに使う
+ */
+export const SHORTS_ATTR = 'data-ycf-shorts';
 
 /** html 要素に付ける。付いている間はコメント欄を開く */
 export const OPEN_ATTR = 'data-ycf-open';

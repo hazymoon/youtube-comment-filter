@@ -14,6 +14,8 @@ import {
   OPEN_ATTR,
   REASON_ATTR,
   REPLIES_ID,
+  SHORTS_ATTR,
+  SHORTS_COMMENTS_SELECTOR,
   STATE_ATTR,
   THREAD_TAG,
   VIEW_MODEL_TAG,
@@ -85,10 +87,16 @@ html[dark] #${BAR_ID} .ycf-status {
  * 対象のコメント欄を指すセレクタの組み立て方。html 要素への条件（開閉）を足せる形で返す。
  * - WATCH_ATTR: 動画ページかを JS が html の属性で宣言する。確認済みのセレクタ（COMMENTS_SELECTOR）だけに依存する
  * - WATCH_COMMENTS_SELECTOR: 未確認の ytd-watch-flexy に依存する。属性が付く前の保険として併記する
+ * - SHORTS_ATTR / SHORTS_COMMENTS_SELECTOR: Shorts のコメント欄（id の無い ytd-comments）。動画ページと同じく、
+ *   属性で宣言したものと、属性が付く前の保険の 2 つを並べる
  * どちらかが外れても、もう一方で閉じる・隠す規則が当たるようにする（fail-closed）。
  * @type {((htmlCondition: string) => string)[]}
  */
 const COMMENTS_SCOPES = [
+  // 同じ規則の中のセレクタの順序は適用結果に影響しない。既存のテストが規則の最後のセレクタを
+  // 動画ページの範囲として読むので、Shorts の範囲を先に置く
+  (htmlCondition) => `html[${SHORTS_ATTR}]${htmlCondition} ${SHORTS_COMMENTS_SELECTOR}`,
+  (htmlCondition) => (htmlCondition ? `html${htmlCondition} ${SHORTS_COMMENTS_SELECTOR}` : SHORTS_COMMENTS_SELECTOR),
   (htmlCondition) => `html[${WATCH_ATTR}]${htmlCondition} ${COMMENTS_SELECTOR}`,
   (htmlCondition) => (htmlCondition ? `html${htmlCondition} ${WATCH_COMMENTS_SELECTOR}` : WATCH_COMMENTS_SELECTOR),
 ];
@@ -107,7 +115,7 @@ function forEachScope(build) {
 /**
  * CSS の文字列を返す。
  *
- * - 対象は動画ページのコメント欄の中だけにする。ほかのページのコメントを判定前のまま隠さないため
+ * - 対象は動画ページと Shorts のコメント欄の中だけにする。ほかのページのコメントを判定前のまま隠さないため
  * - thread から #comment-container / #replies へは直下結合子で書く。子孫結合子だと、入れ子の返信に親の状態が漏れる
  * - 状態の属性が無い thread は判定前として隠す（fail-closed）。スクリプトが属性を付けるまでの間も見せない
  * - 判定前・判定待ちは thread 自体も隠す。#comment-container の id が変わっても中身が見えないようにするため

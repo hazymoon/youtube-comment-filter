@@ -18,7 +18,7 @@ import {
 import { buildCountText, buildStatusText } from './decide.js';
 import { directChildById } from './dom.js';
 import { createLanguageModelController } from './lm.js';
-import { createNavigationState } from './navigation.js';
+import { createNavigationState, pageKindFromPathname } from './navigation.js';
 import { NG_USERS_VALUE_KEY, NG_WORDS_VALUE_KEY, parseStoredSettings } from './settings.js';
 import { createAiQueue } from './queue.js';
 import { compileRules } from './rules.js';
@@ -32,12 +32,13 @@ import {
   NAVIGATE_FINISH_EVENT,
   NAVIGATE_START_EVENT,
   OPEN_ATTR,
+  SHORTS_ATTR,
+  SHORTS_COMMENTS_SELECTOR,
   STATE_ATTR,
   STYLE_ID,
   THREAD_TAG,
   WATCH_ATTR,
   WATCH_COMMENTS_SELECTOR,
-  WATCH_PATHNAME,
 } from './selectors.js';
 import { buildStyles } from './styles.js';
 import { createCountBar } from './ui.js';
@@ -108,7 +109,7 @@ function readStoredSettings() {
 export function main() {
   const doc = document;
   injectStyles(doc);
-  updateWatchAttr();
+  updatePageAttrs();
   const navigation = createNavigationState(location.href);
 
   const stored = readStoredSettings();
@@ -196,14 +197,37 @@ export function main() {
     return commentsEl ? Array.from(commentsEl.querySelectorAll(THREAD_TAG)) : [];
   }
 
-  /** 動画ページか */
-  function isWatchPage() {
-    return location.pathname === WATCH_PATHNAME;
+  /** 対象のページ（動画ページか Shorts）の種類。対象外なら null */
+  function currentPageKind() {
+    return pageKindFromPathname(location.pathname);
   }
 
-  /** 動画ページにいる間だけ html に WATCH_ATTR を付ける（CSS が対象のコメント欄を決めるのに使う） */
-  function updateWatchAttr() {
-    doc.documentElement.toggleAttribute(WATCH_ATTR, location.pathname === WATCH_PATHNAME);
+  /** 対象のページ（動画ページか Shorts）か */
+  function isTargetPage() {
+    return currentPageKind() !== null;
+  }
+
+  /**
+   * ページの種類に応じて html に WATCH_ATTR / SHORTS_ATTR を付ける（CSS が対象のコメント欄を決めるのに使う）。
+   * 遷移で種類が変わったら付け替える
+   */
+  function updatePageAttrs() {
+    const kind = currentPageKind();
+    doc.documentElement.toggleAttribute(WATCH_ATTR, kind === 'watch');
+    doc.documentElement.toggleAttribute(SHORTS_ATTR, kind === 'shorts');
+  }
+
+  /**
+   * いまのページの種類のコメント欄を探す。
+   * Shorts のページでも動画ページの ytd-comments#comments は DOM に残るので（逆も同じ）、ページの種類で探し分ける。
+   * @returns {Element|null}
+   */
+  function findComments() {
+    const kind = currentPageKind();
+    if (kind === 'shorts') return doc.querySelector(SHORTS_COMMENTS_SELECTOR);
+    // ytd-watch-flexy は未確認なので、外れたときは確認済みの ytd-comments#comments だけで探す
+    if (kind === 'watch') return doc.querySelector(WATCH_COMMENTS_SELECTOR) ?? doc.querySelector(COMMENTS_SELECTOR);
+    return null;
   }
 
   /** 件数バーを更新する。隠したスレッドの中のコメントは数えない。 */
@@ -212,7 +236,7 @@ export function main() {
       open: doc.documentElement.hasAttribute(OPEN_ATTR),
       countText: buildCountText(processor.countThreads(currentThreads())),
       statusText: buildStatusText(lm.getState()),
-      visible: isWatchPage() && commentsEl !== null,
+      visible: isTargetPage() && commentsEl !== null,
     });
   }
 
@@ -222,7 +246,7 @@ export function main() {
    */
   function scan() {
     scanTimer = null;
-    if (!commentsEl || !isWatchPage()) {
+    if (!commentsEl || !isTargetPage()) {
       renderBar();
       return;
     }
@@ -243,13 +267,13 @@ export function main() {
   }
 
   /**
-   * 動画ページのコメント欄を探して監視し、件数バーを差し込む。要素が作り直されていたら付け直す。
+   * 動画ページか Shorts のコメント欄を探して監視し、件数バーを差し込む。要素が作り直されていたら付け直す。
    * まだ無ければ document を監視して出現を待つ。
    */
   function attach() {
-    updateWatchAttr();
-    if (!isWatchPage()) {
-      // 動画ページ以外では document 全体やコメント欄の監視を残さない
+    updatePageAttrs();
+    if (!isTargetPage()) {
+      // 対象のページ以外では document 全体やコメント欄の監視を残さない
       documentObserver?.disconnect();
       documentObserver = null;
       commentsObserver?.disconnect();
@@ -258,14 +282,18 @@ export function main() {
       renderBar();
       return;
     }
-    // ytd-watch-flexy は未確認なので、外れたときは確認済みの ytd-comments#comments だけで探す
-    const found = doc.querySelector(WATCH_COMMENTS_SELECTOR) ?? doc.querySelector(COMMENTS_SELECTOR);
-    if (found && found !== commentsEl) {
+    const found = findComments();
+    // 見つからないときも監視を外す。動画ページと Shorts の間を移ると、前のページのコメント欄が
+    // DOM に残ったまま（isConnected のまま）になり、それを監視し続けないため
+    if (found !== commentsEl) {
       commentsObserver?.disconnect();
+      commentsObserver = null;
       commentsEl = found;
-      commentsObserver = new MutationObserver(onCommentsMutation);
-      // 自分が書き換える data-ycf-* 属性で再スキャンが回り続けないよう、attributes は監視しない
-      commentsObserver.observe(found, { childList: true, subtree: true, characterData: true });
+      if (found) {
+        commentsObserver = new MutationObserver(onCommentsMutation);
+        // 自分が書き換える data-ycf-* 属性で再スキャンが回り続けないよう、attributes は監視しない
+        commentsObserver.observe(found, { childList: true, subtree: true, characterData: true });
+      }
     }
     if (commentsEl && !commentsEl.isConnected) {
       commentsObserver?.disconnect();
