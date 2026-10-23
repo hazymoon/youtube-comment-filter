@@ -142,16 +142,18 @@ export function buildStyles() {
   );
   const hiddenThread = forEachScope((thread) => [`${thread}[${STATE_ATTR}="hidden"]`]);
   // NG 登録のボタンは、判定から外したもの以外の表示中のコメントにホバーしたとき、またはコメント内に
-  // フォーカスがあるときだけ見せる。display:none の要素にはタブで移動できないため、コメント内の要素
+  // キーボードのフォーカスがあるときだけ見せる。display:none の要素にはタブで移動できないため、コメント内の要素
   // （ボタンの前にある投稿者名のリンクなど）にフォーカスが来た時点で見せ、そこからタブでボタンへ進めるようにする。
-  // :focus-within はボタン自身のフォーカスも含むので、ボタンへ移った後も消えない。
+  // :focus-within だとマウスのクリックで残ったフォーカスにも当たり、クリック後にボタンが出たままになるので、
+  // :has(:focus-visible) を使う。ボタン自身へタブで移ったときも :focus-visible なので、移った後も消えない。
   // 直下結合子で書き、返信にホバー・フォーカスしたときに親のボタンが出ないようにする
-  const blockButtonShown = forEachScope((thread) =>
-    ['hover', 'focus-within'].map(
-      (pseudo) =>
-        `${thread}[${STATE_ATTR}="shown"]:not([${REASON_ATTR}="exempt"]) > #${COMMENT_CONTAINER_ID} ${VIEW_MODEL_TAG}:${pseudo} .${BLOCK_BUTTON_CLASS}`,
-    ),
-  );
+  const blockButtonOf = (thread, pseudo) =>
+    `${thread}[${STATE_ATTR}="shown"]:not([${REASON_ATTR}="exempt"]) > #${COMMENT_CONTAINER_ID} ${VIEW_MODEL_TAG}${pseudo} .${BLOCK_BUTTON_CLASS}`;
+  const blockButtonHover = forEachScope((thread) => [blockButtonOf(thread, ':hover')]);
+  // :has() を解釈しないブラウザでは、:has() を含むセレクタリストの規則全体が捨てられる。
+  // ホバーの規則を巻き込まないよう別の規則にする。:is(:hover, :has(...)) にまとめる形は、:is() の中の
+  // 無効なセレクタを読み飛ばすかどうかがブラウザの実装時期で揺れたため採らない
+  const blockButtonFocus = forEachScope((thread) => [blockButtonOf(thread, ':has(:focus-visible)')]);
 
   const contentOf = (container) => `${container} ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
   const hoverOf = (container) => `${container} ${VIEW_MODEL_TAG}:hover ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
@@ -289,7 +291,10 @@ ${shownButtons} {
 html[dark] .${BLOCK_BUTTON_CLASS} {
   color: ${barColor('subtext', 'dark')};
 }
-${blockButtonShown} {
+${blockButtonHover} {
+  display: inline-block !important;
+}
+${blockButtonFocus} {
   display: inline-block !important;
 }
 
