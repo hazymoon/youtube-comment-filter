@@ -87,6 +87,8 @@ function threadOfTarget(target) {
  * @param {() => import('./decide.js').AiMode} options.getAiMode AI 判定の状態
  * @param {(...args: unknown[]) => void} [options.debugLog] 判定の経過を出す。本文は、AI が隠したコメントの冒頭
  *   （AI_HIDDEN_EXCERPT_CHARS 文字まで）だけを渡す
+ * @param {(thread: Element) => void} [options.onShown] AI の判定で表示にした thread を受け取る。
+ *   AI の判定はスキャンの外で反映されるため、スキャンで付けるもの（NG 登録のボタン）をここで付ける
  * @returns {ThreadProcessor}
  */
 export function createThreadProcessor({
@@ -95,6 +97,7 @@ export function createThreadProcessor({
   cache,
   getAiMode,
   debugLog = () => {},
+  onShown = () => {},
 }) {
   let currentRules = rules;
   /** ルールを差し替えた回数。thread ごとに、どの版のルールで判定したかを judgedRulesVersion に持つ */
@@ -206,7 +209,10 @@ export function createThreadProcessor({
         }
         if (thread.getAttribute(STATE_ATTR) !== 'pending') continue;
         if (verdict.hide) applyThreadState(thread, 'hidden', 'ai');
-        else applyThreadState(thread, 'shown', undefined);
+        else {
+          applyThreadState(thread, 'shown', undefined);
+          onShown(thread);
+        }
         debugLog('AI の判定', id, verdict.hide ? `hidden(${verdict.category})` : 'shown');
         if (verdict.hide) logAiHidden(verdict.category, item.text);
       }

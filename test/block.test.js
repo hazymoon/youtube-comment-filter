@@ -140,3 +140,22 @@ test('setRules の後は、表示に確定済みのコメントも新しいル�
   assert.equal(thread.getAttribute(STATE_ATTR), 'hidden');
   assert.equal(thread.getAttribute(REASON_ATTR), 'ngUser');
 });
+
+test('AI の判定で表示になった thread を onShown に渡す（スキャンを待たずに NG 登録のボタンを付けるため）', () => {
+  const shown = [];
+  const processor = createThreadProcessor({
+    rules: compileRules({}),
+    cache: { get: () => null, set: () => {} },
+    getAiMode: () => 'ready',
+    onShown: (thread) => shown.push(thread),
+  });
+  const kept = makeThread('@eve');
+  const hidden = makeThread('@mallory');
+  processor.processThreads([kept, hidden]);
+  assert.deepEqual(shown, [], 'AI の判定前は渡さない');
+
+  processor.applyVerdict([kept, hidden], 'id-@eve', { hide: false, category: null }, { id: 'id-@eve', text: '本文' });
+  processor.applyVerdict([kept, hidden], 'id-@mallory', { hide: true, category: '暴言' }, { id: 'id-@mallory', text: '本文' });
+  assert.equal(kept.getAttribute(STATE_ATTR), 'shown');
+  assert.deepEqual(shown, [kept], '隠した thread は渡さない');
+});

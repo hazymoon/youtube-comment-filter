@@ -182,6 +182,7 @@ export function main() {
     cache,
     getAiMode: () => lm.getState().mode,
     debugLog,
+    onShown: (thread) => ensureBlockButton(findOwnViewModel(thread), doc, onBlockClick),
   });
 
   const queue = createAiQueue({
