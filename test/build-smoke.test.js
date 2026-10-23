@@ -43,7 +43,12 @@ function fakeElement(tag) {
   return element;
 }
 
-test('ビルド結果を偽の DOM で実行すると、起動処理が例外なく最後まで走る', () => {
+/**
+ * ビルド結果を偽の DOM で実行する。
+ * @param {{ href: string, pathname: string }} location 起動時の location
+ * @returns {{ html: ReturnType<typeof fakeElement>, documentListeners: string[] }}
+ */
+function runBuilt(location) {
   const html = fakeElement('html');
   const documentListeners = [];
   const document = {
@@ -60,7 +65,7 @@ test('ビルド結果を偽の DOM で実行すると、起動処理が例外な
   const context = {
     document,
     window: { addEventListener() {} },
-    location: { href: 'https://www.youtube.com/watch?v=abc', pathname: '/watch' },
+    location,
     console: { ...console, debug() {} },
     setTimeout: () => 0,
     clearTimeout() {},
@@ -77,8 +82,22 @@ test('ビルド結果を偽の DOM で実行すると、起動処理が例外な
   };
 
   vm.runInNewContext(buildUserscript(), context);
+  return { html, documentListeners };
+}
+
+test('ビルド結果を偽の DOM で実行すると、起動処理が例外なく最後まで走る', () => {
+  const { html, documentListeners } = runBuilt({ href: 'https://www.youtube.com/watch?v=abc', pathname: '/watch' });
 
   assert.equal(html.hasAttribute('data-ycf-watch'), true);
+  assert.equal(html.hasAttribute('data-ycf-shorts'), false);
   // 起動処理の最後で DOMContentLoaded を待つので、そこまで走ったことを確かめる
+  assert.ok(documentListeners.includes('DOMContentLoaded'), `登録されたイベント: ${documentListeners.join(', ')}`);
+});
+
+test('Shorts のページで起動すると、html に data-ycf-shorts だけを付けて最後まで走る', () => {
+  const { html, documentListeners } = runBuilt({ href: 'https://www.youtube.com/shorts/abc', pathname: '/shorts/abc' });
+
+  assert.equal(html.hasAttribute('data-ycf-shorts'), true);
+  assert.equal(html.hasAttribute('data-ycf-watch'), false);
   assert.ok(documentListeners.includes('DOMContentLoaded'), `登録されたイベント: ${documentListeners.join(', ')}`);
 });

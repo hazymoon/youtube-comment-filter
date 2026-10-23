@@ -60,3 +60,20 @@ test('全文固定の間は、ホバーしても 4 行に戻らない（全文�
   assert.match(expandedHover.body, /-webkit-line-clamp:\s*unset/);
   assert.ok(expandedHover.index > hover.index, 'ホバーの規則より後に置く');
 });
+
+test('Shorts のコメント欄（ytd-shorts の中の id の無い ytd-comments）にも、属性と保険の両方で閉じる・隠す規則が当たる', () => {
+  const SHORTS_ATTR_SCOPE = 'html[data-ycf-shorts] ytd-shorts ytd-comments';
+  const SHORTS_FALLBACK_SCOPE = 'ytd-shorts ytd-comments';
+  assert.match(ruleOf('html[data-ycf-shorts]:not([data-ycf-open]) ytd-shorts ytd-comments').body, /visibility:\s*hidden/);
+  assert.match(ruleOf('html:not([data-ycf-open]) ytd-shorts ytd-comments').body, /visibility:\s*hidden/);
+  for (const base of [SHORTS_ATTR_SCOPE, SHORTS_FALLBACK_SCOPE]) {
+    assert.match(ruleOf(`${base} ${THREAD}[data-ycf-state="hidden"]`).body, /display:\s*none/);
+    for (const state of [':not([data-ycf-state])', '[data-ycf-state="pending"]']) {
+      assert.match(ruleOf(`${base} ${THREAD}${state}`).body, /visibility:\s*hidden/);
+    }
+    assert.match(
+      ruleOf(`${base} ${THREAD}[data-ycf-state="shown"] > #comment-container ytd-expander#expander > #content`).body,
+      /-webkit-line-clamp:\s*1/,
+    );
+  }
+});

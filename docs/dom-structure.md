@@ -72,3 +72,23 @@ div#body
 | 投稿者のチャンネル ID | `ytd-comment-view-model` の `.polymerController.__data.commentEntity.author.channelId` |
 | 投稿者のハンドル | データ内には無い。`a#author-text` か `a#name` の href（`/@handle`） |
 | 表示名 | `.polymerController.__data.commentEntity.author.displayName`（判定には使わない） |
+
+## Shorts のコメント欄
+
+2026-10-23 に、Shorts のページ（`/shorts/<videoId>`、Chrome、page 世界）でコメントのパネルを開いて確認した。
+
+```text
+ytd-shorts
+└ div#shorts-panel-container > div#anchored-panel
+  └ ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-comments-section"]
+    ├ div#header > ytd-engagement-panel-title-header-renderer
+    └ div#content > ytd-section-list-renderer > div#contents
+      └ ytd-comments                              … id が無い（動画ページの ytd-comments#comments とは別の要素）
+        └ ytd-item-section-renderer#sections > div#contents > ytd-comment-thread-renderer …
+```
+
+- `ytd-comments` より内側（`ytd-comment-thread-renderer` 以下、`ytd-comment-view-model#comment`、`#content-text`、`ytd-expander#expander > #content`、`#more`）は動画ページと同じ構造だった
+- 投稿者のリンクの href は `/@handle`、`#published-time-text a` の href は `lc=` を持ち、その値は `.data.commentId` と一致した。`.polymerController.__data.commentEntity.author.channelId` も取れた
+- Shorts のページでも `ytd-watch-flexy` とその中の `ytd-comments#comments`（中身は空）が DOM に残っている。対象のコメント欄はページの種類で探し分ける
+- 次の Shorts へ移ると `yt-navigate-start` → `yt-navigate-finish` が発火した。`ytd-comments` とパネルの要素は使い回され（同一の要素のまま）、パネルは開いたまま中身だけが次の動画のコメントに入れ替わった
+

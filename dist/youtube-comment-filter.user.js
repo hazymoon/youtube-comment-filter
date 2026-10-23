@@ -1107,6 +1107,18 @@ const COMMENTS_SELECTOR = 'ytd-comments#comments';
 /** 対象にするコメント欄（動画ページのものだけ）。WATCH_FLEXY_TAG が未確認なのでこの組み合わせも未確認 */
 const WATCH_COMMENTS_SELECTOR = `${WATCH_FLEXY_TAG} ${COMMENTS_SELECTOR}`;
 
+/**
+ * Shorts のページの本体。確認済み（docs/dom-structure.md「Shorts のコメント欄」）。
+ * 動画ページの ytd-watch-flexy と同時に DOM に残るので、どちらのコメント欄を対象にするかはページの種類で決める
+ */
+const SHORTS_TAG = 'ytd-shorts';
+
+/**
+ * Shorts のコメント欄。engagement panel の中の ytd-comments で、id が無い。
+ * 確認済み（docs/dom-structure.md「Shorts のコメント欄」）
+ */
+const SHORTS_COMMENTS_SELECTOR = `${SHORTS_TAG} ytd-comments`;
+
 /** 1 コメント（返信を含む）。確認済み（docs/dom-structure.md「1 コメント = 1 ytd-comment-thread-renderer」） */
 const THREAD_TAG = 'ytd-comment-thread-renderer';
 
@@ -1162,20 +1174,29 @@ const LESS_BUTTON_SELECTOR = 'tp-yt-paper-button#less';
  */
 const INTERACTIVE_SELECTOR = 'a, button, tp-yt-paper-button, [role="button"], yt-button-shape';
 
-/** SPA の遷移の開始。未確認（工程 3 で確認）: docs/ に記録が無い */
+/** SPA の遷移の開始。Shorts の次の動画への移動で発火することは確認済み（docs/dom-structure.md「Shorts のコメント欄」）。動画ページでは未確認 */
 const NAVIGATE_START_EVENT = 'yt-navigate-start';
 
-/** SPA の遷移の完了。未確認（工程 3 で確認）: docs/ に記録が無い */
+/** SPA の遷移の完了。Shorts の次の動画への移動で発火することは確認済み（同上）。動画ページでは未確認 */
 const NAVIGATE_FINISH_EVENT = 'yt-navigate-finish';
 
 /** 動画ページのパス。対象のページかの判定に使う */
 const WATCH_PATHNAME = '/watch';
+
+/** Shorts のページのパスの接頭辞（/shorts/<videoId>）。対象のページかの判定に使う */
+const SHORTS_PATHNAME_PREFIX = '/shorts/';
 
 /**
  * html 要素に付ける。動画ページ（WATCH_PATHNAME）にいる間だけ付ける。
  * CSS が未確認の WATCH_FLEXY_TAG だけに頼らずに対象のコメント欄を決めるため
  */
 const WATCH_ATTR = 'data-ycf-watch';
+
+/**
+ * html 要素に付ける。Shorts のページ（SHORTS_PATHNAME_PREFIX）にいる間だけ付ける。
+ * WATCH_ATTR と同じく、CSS が対象のコメント欄を決めるのに使う
+ */
+const SHORTS_ATTR = 'data-ycf-shorts';
 
 /** html 要素に付ける。付いている間はコメント欄を開く */
 const OPEN_ATTR = 'data-ycf-open';
@@ -1609,10 +1630,16 @@ html[dark] #${BAR_ID} .ycf-status {
  * 対象のコメント欄を指すセレクタの組み立て方。html 要素への条件（開閉）を足せる形で返す。
  * - WATCH_ATTR: 動画ページかを JS が html の属性で宣言する。確認済みのセレクタ（COMMENTS_SELECTOR）だけに依存する
  * - WATCH_COMMENTS_SELECTOR: 未確認の ytd-watch-flexy に依存する。属性が付く前の保険として併記する
+ * - SHORTS_ATTR / SHORTS_COMMENTS_SELECTOR: Shorts のコメント欄（id の無い ytd-comments）。動画ページと同じく、
+ *   属性で宣言したものと、属性が付く前の保険の 2 つを並べる
  * どちらかが外れても、もう一方で閉じる・隠す規則が当たるようにする（fail-closed）。
  * @type {((htmlCondition: string) => string)[]}
  */
 const COMMENTS_SCOPES = [
+  // 同じ規則の中のセレクタの順序は適用結果に影響しない。既存のテストが規則の最後のセレクタを
+  // 動画ページの範囲として読むので、Shorts の範囲を先に置く
+  (htmlCondition) => `html[${SHORTS_ATTR}]${htmlCondition} ${SHORTS_COMMENTS_SELECTOR}`,
+  (htmlCondition) => (htmlCondition ? `html${htmlCondition} ${SHORTS_COMMENTS_SELECTOR}` : SHORTS_COMMENTS_SELECTOR),
   (htmlCondition) => `html[${WATCH_ATTR}]${htmlCondition} ${COMMENTS_SELECTOR}`,
   (htmlCondition) => (htmlCondition ? `html${htmlCondition} ${WATCH_COMMENTS_SELECTOR}` : WATCH_COMMENTS_SELECTOR),
 ];
@@ -1631,7 +1658,7 @@ function forEachScope(build) {
 /**
  * CSS の文字列を返す。
  *
- * - 対象は動画ページのコメント欄の中だけにする。ほかのページのコメントを判定前のまま隠さないため
+ * - 対象は動画ページと Shorts のコメント欄の中だけにする。ほかのページのコメントを判定前のまま隠さないため
  * - thread から #comment-container / #replies へは直下結合子で書く。子孫結合子だと、入れ子の返信に親の状態が漏れる
  * - 状態の属性が無い thread は判定前として隠す（fail-closed）。スクリプトが属性を付けるまでの間も見せない
  * - 判定前・判定待ちは thread 自体も隠す。#comment-container の id が変わっても中身が見えないようにするため
@@ -2352,20 +2379,69 @@ function createThreadProcessor({ rules, cache, getAiMode, debugLog = () => {} })
 
 
 /**
+ * @typedef {'watch'|'shorts'} PageKind 対象にするページの種類
+ */
+
+/**
+ * パスから対象のページの種類を返す。対象外なら null。
+ * @param {string} pathname location.pathname
+ * @returns {PageKind|null}
+ */
+function pageKindFromPathname(pathname) {
+  if (pathname === WATCH_PATHNAME) return 'watch';
+  if (typeof pathname === 'string' && pathname.startsWith(SHORTS_PATHNAME_PREFIX)) return 'shorts';
+  return null;
+}
+
+/**
+ * URL を解釈する。解釈できなければ null。
+ * @param {string} href URL
+ * @returns {URL|null}
+ */
+function parseUrl(href) {
+  try {
+    return new URL(href);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * URL から動画 ID（v パラメータ）を取り出す。動画ページでなければ null。
  * @param {string} href URL
  * @returns {string|null}
  */
 function videoIdFromUrl(href) {
-  let url;
-  try {
-    url = new URL(href);
-  } catch {
-    return null;
-  }
-  if (url.pathname !== WATCH_PATHNAME) return null;
+  const url = parseUrl(href);
+  if (!url || url.pathname !== WATCH_PATHNAME) return null;
   const id = url.searchParams.get('v');
   return id ? id : null;
+}
+
+/**
+ * URL から Shorts の動画 ID（/shorts/<id> の <id>）を取り出す。Shorts のページでなければ null。
+ * @param {string} href URL
+ * @returns {string|null}
+ */
+function shortsIdFromUrl(href) {
+  const url = parseUrl(href);
+  if (!url || !url.pathname.startsWith(SHORTS_PATHNAME_PREFIX)) return null;
+  const id = url.pathname.slice(SHORTS_PATHNAME_PREFIX.length).split('/')[0];
+  return id ? id : null;
+}
+
+/**
+ * URL から、コメント欄の判定を引き継いでよい単位のキーを作る。対象のページでなければ null。
+ * 同じ動画でも動画ページと Shorts ではコメント欄の要素が別なので、ページの種類もキーに含める。
+ * @param {string} href URL
+ * @returns {string|null} "watch:<id>" か "shorts:<id>"
+ */
+function pageKeyFromUrl(href) {
+  const watchId = videoIdFromUrl(href);
+  if (watchId) return `watch:${watchId}`;
+  const shortsId = shortsIdFromUrl(href);
+  if (shortsId) return `shorts:${shortsId}`;
+  return null;
 }
 
 /**
@@ -2378,18 +2454,17 @@ function videoIdFromUrl(href) {
 /**
  * 遷移の状態を作る。
  *
- * - コメント欄を閉じて判定を捨てるのは、動画 ID が変わったときだけにする。同じ動画の中の遷移
+ * - コメント欄を閉じて判定を捨てるのは、動画（Shorts を含む）が変わったときだけにする。同じ動画の中の遷移
  *   （時刻や lc= 付きの URL）で読んでいる途中の欄を閉じないため
+ * - Shorts で次の動画へ移ると、コメント欄の要素は使い回されたまま中身が入れ替わる（docs/dom-structure.md）。
+ *   動画ページと同じく別の動画として扱い、欄を閉じる
  * - 遷移の開始から完了までは順番待ちに入れない。DOM に残る前の動画の thread を入れ直さないため
- *
- * 遷移のイベントが来る条件は未確認（selectors.js の NAVIGATE_START_EVENT / NAVIGATE_FINISH_EVENT）。
- * 開始だけ来て完了が来ないと順番待ちに入れられないままになるので、工程 3 で確かめる。
  *
  * @param {string} initialHref 起動時の URL
  * @returns {NavigationState}
  */
 function createNavigationState(initialHref) {
-  let videoId = videoIdFromUrl(initialHref);
+  let pageKey = pageKeyFromUrl(initialHref);
   let navigating = false;
   return {
     start() {
@@ -2397,9 +2472,9 @@ function createNavigationState(initialHref) {
     },
     finish(href) {
       navigating = false;
-      const next = videoIdFromUrl(href);
-      const videoChanged = next !== videoId;
-      videoId = next;
+      const next = pageKeyFromUrl(href);
+      const videoChanged = next !== pageKey;
+      pageKey = next;
       return { videoChanged };
     },
     canEnqueue() {
@@ -2544,7 +2619,7 @@ function readStoredSettings() {
 function main() {
   const doc = document;
   injectStyles(doc);
-  updateWatchAttr();
+  updatePageAttrs();
   const navigation = createNavigationState(location.href);
 
   const stored = readStoredSettings();
@@ -2632,14 +2707,37 @@ function main() {
     return commentsEl ? Array.from(commentsEl.querySelectorAll(THREAD_TAG)) : [];
   }
 
-  /** 動画ページか */
-  function isWatchPage() {
-    return location.pathname === WATCH_PATHNAME;
+  /** 対象のページ（動画ページか Shorts）の種類。対象外なら null */
+  function currentPageKind() {
+    return pageKindFromPathname(location.pathname);
   }
 
-  /** 動画ページにいる間だけ html に WATCH_ATTR を付ける（CSS が対象のコメント欄を決めるのに使う） */
-  function updateWatchAttr() {
-    doc.documentElement.toggleAttribute(WATCH_ATTR, location.pathname === WATCH_PATHNAME);
+  /** 対象のページ（動画ページか Shorts）か */
+  function isTargetPage() {
+    return currentPageKind() !== null;
+  }
+
+  /**
+   * ページの種類に応じて html に WATCH_ATTR / SHORTS_ATTR を付ける（CSS が対象のコメント欄を決めるのに使う）。
+   * 遷移で種類が変わったら付け替える
+   */
+  function updatePageAttrs() {
+    const kind = currentPageKind();
+    doc.documentElement.toggleAttribute(WATCH_ATTR, kind === 'watch');
+    doc.documentElement.toggleAttribute(SHORTS_ATTR, kind === 'shorts');
+  }
+
+  /**
+   * いまのページの種類のコメント欄を探す。
+   * Shorts のページでも動画ページの ytd-comments#comments は DOM に残るので（逆も同じ）、ページの種類で探し分ける。
+   * @returns {Element|null}
+   */
+  function findComments() {
+    const kind = currentPageKind();
+    if (kind === 'shorts') return doc.querySelector(SHORTS_COMMENTS_SELECTOR);
+    // ytd-watch-flexy は未確認なので、外れたときは確認済みの ytd-comments#comments だけで探す
+    if (kind === 'watch') return doc.querySelector(WATCH_COMMENTS_SELECTOR) ?? doc.querySelector(COMMENTS_SELECTOR);
+    return null;
   }
 
   /** 件数バーを更新する。隠したスレッドの中のコメントは数えない。 */
@@ -2648,7 +2746,7 @@ function main() {
       open: doc.documentElement.hasAttribute(OPEN_ATTR),
       countText: buildCountText(processor.countThreads(currentThreads())),
       statusText: buildStatusText(lm.getState()),
-      visible: isWatchPage() && commentsEl !== null,
+      visible: isTargetPage() && commentsEl !== null,
     });
   }
 
@@ -2658,7 +2756,7 @@ function main() {
    */
   function scan() {
     scanTimer = null;
-    if (!commentsEl || !isWatchPage()) {
+    if (!commentsEl || !isTargetPage()) {
       renderBar();
       return;
     }
@@ -2679,13 +2777,13 @@ function main() {
   }
 
   /**
-   * 動画ページのコメント欄を探して監視し、件数バーを差し込む。要素が作り直されていたら付け直す。
+   * 動画ページか Shorts のコメント欄を探して監視し、件数バーを差し込む。要素が作り直されていたら付け直す。
    * まだ無ければ document を監視して出現を待つ。
    */
   function attach() {
-    updateWatchAttr();
-    if (!isWatchPage()) {
-      // 動画ページ以外では document 全体やコメント欄の監視を残さない
+    updatePageAttrs();
+    if (!isTargetPage()) {
+      // 対象のページ以外では document 全体やコメント欄の監視を残さない
       documentObserver?.disconnect();
       documentObserver = null;
       commentsObserver?.disconnect();
@@ -2694,14 +2792,18 @@ function main() {
       renderBar();
       return;
     }
-    // ytd-watch-flexy は未確認なので、外れたときは確認済みの ytd-comments#comments だけで探す
-    const found = doc.querySelector(WATCH_COMMENTS_SELECTOR) ?? doc.querySelector(COMMENTS_SELECTOR);
-    if (found && found !== commentsEl) {
+    const found = findComments();
+    // 見つからないときも監視を外す。動画ページと Shorts の間を移ると、前のページのコメント欄が
+    // DOM に残ったまま（isConnected のまま）になり、それを監視し続けないため
+    if (found !== commentsEl) {
       commentsObserver?.disconnect();
+      commentsObserver = null;
       commentsEl = found;
-      commentsObserver = new MutationObserver(onCommentsMutation);
-      // 自分が書き換える data-ycf-* 属性で再スキャンが回り続けないよう、attributes は監視しない
-      commentsObserver.observe(found, { childList: true, subtree: true, characterData: true });
+      if (found) {
+        commentsObserver = new MutationObserver(onCommentsMutation);
+        // 自分が書き換える data-ycf-* 属性で再スキャンが回り続けないよう、attributes は監視しない
+        commentsObserver.observe(found, { childList: true, subtree: true, characterData: true });
+      }
     }
     if (commentsEl && !commentsEl.isConnected) {
       commentsObserver?.disconnect();
