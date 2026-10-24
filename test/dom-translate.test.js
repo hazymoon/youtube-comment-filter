@@ -59,9 +59,9 @@ test('#content-text が訳文に差し替わっていても、本文は polymer 
   assert.equal(extracted.textHash, hashString('Great video'));
 });
 
-test('polymer の原文が空文字でも、それを本文として使う', () => {
-  const extracted = extractComment(makeThread({ domText: '訳文', polymerText: '' }));
-  assert.equal(extracted.text, '');
+test('polymer の原文が空文字なら、判定せずに表示しないよう #content-text の textContent から読む', () => {
+  const extracted = extractComment(makeThread({ domText: '表示中の本文', polymerText: '' }));
+  assert.equal(extracted.text, '表示中の本文');
 });
 
 test('polymer の原文が文字列でなければ #content-text の textContent から読む', () => {

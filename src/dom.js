@@ -203,8 +203,17 @@ function readLeadingMentionHref(contentEl, rawText) {
 }
 
 /**
- * 本文の文字列を返す。polymer のデータの原文（commentEntity.properties.content.content）が文字列ならそれを使い、
- * 無ければ本文の要素の textContent を使う。
+ * polymer の原文に入るカスタム絵文字の名前（:whistle-red-blow: など）。画面では画像の絵文字として出るので、
+ * 本文の要素の textContent には入らない。原文のまま使うと、NG ワードが絵文字の名前の一部（red など）に一致して
+ * 隠れてしまうため取り除く。時刻（1:23:45）を巻き込まないよう、英字を 1 文字以上含むものに限る
+ */
+const CUSTOM_EMOJI_NAME = /:[a-z0-9_-]*[a-z][a-z0-9_-]*:/gi;
+
+/**
+ * 本文の文字列を返す。polymer のデータの原文（commentEntity.properties.content.content）が空でない文字列ならそれを使い、
+ * 無ければ本文の要素の textContent を使う。原文からはカスタム絵文字の名前（CUSTOM_EMOJI_NAME）を取り除く。
+ * 原文が空文字のとき（取り除いて空になったときを含む）も要素から読む。空文字の本文は NG ワードも AI も経ずに
+ * 表示するので（decide.js）、データが埋まる前の空文字を採ると、表示中の本文を判定せずに見せてしまうため。
  * 「日本語に翻訳」を押すと本文の要素の中身は訳文に差し替わるが、原文のデータは翻訳中も変わらない
  * （訳文は commentEntity.translatedContent.content に入る。docs/dom-structure.md「データ」）。
  * 表示中の文字列から読むと、翻訳・原文に戻すたびにハッシュが変わり、判定前に戻って AI に送り直すことになる。
@@ -215,7 +224,8 @@ function readLeadingMentionHref(contentEl, rawText) {
  */
 function readBodyText(viewModel, contentEl) {
   const original = viewModel?.polymerController?.__data?.commentEntity?.properties?.content?.content;
-  return typeof original === 'string' ? original : String(contentEl.textContent ?? '');
+  const text = typeof original === 'string' ? original.replace(CUSTOM_EMOJI_NAME, '') : null;
+  return nonEmptyString(text) ?? String(contentEl.textContent ?? '');
 }
 
 /**
