@@ -1295,6 +1295,14 @@ const ID_ATTR = 'data-ycf-id';
 /** thread に付ける、判定した本文のハッシュ */
 const HASH_ATTR = 'data-ycf-hash';
 
+/**
+ * thread に付ける、判定したときの judgeExemption の結果（判定から外さないときは空文字）。
+ * 判定から外す条件のデータ（所有者・固定・認証済み・投稿者）は本文より遅れて届きうるので、結果が変わったら判定し直す。
+ * 条件のデータではなく結果を比べるのは、設定で外していない条件や結果を変えない変化で判定し直さないため。
+ * HASH_ATTR は AI の判定のキャッシュのキーなので、結果はそこに混ぜずこの属性で比べる
+ */
+const EXEMPTION_ATTR = 'data-ycf-exemption';
+
 /** thread に付ける。付いている間は本文を全文表示に固定する */
 const EXPANDED_ATTR = 'data-ycf-expanded';
 
@@ -2311,6 +2319,15 @@ function createLanguageModelController({ categories, enabled, onStateChange, get
 const AI_HIDDEN_EXCERPT_CHARS = 60;
 
 /**
+ * judgeExemption の結果を、EXEMPTION_ATTR に記録する文字列にする。判定から外さないときは空文字。
+ * @param {string|null} exemption judgeExemption の結果
+ * @returns {string}
+ */
+function exemptionRecordOf(exemption) {
+  return exemption ?? '';
+}
+
+/**
  * thread の表示状態の属性を書き換える。変わらない属性には触れない。
  * @param {Element} thread ytd-comment-thread-renderer
  * @param {'shown'|'hidden'|'pending'} state 表示状態
@@ -2361,6 +2378,7 @@ function threadOfTarget(target) {
  *   thread を文書順に判定して表示状態を反映し、AI の順番待ちに入れるコメントを返す。
  *   隠したスレッドの中は飛ばし、ID と本文が前回と同じで表示か非表示に確定済みのものも飛ばす。
  *   ID か本文が変わっていたら（Polymer の要素の再利用）全文表示の固定を外して判定し直す。
+ *   判定から外すかどうかの結果（judgeExemption）だけが変わったら、全文表示の固定は保ったまま判定し直す。
  *   返す順は文書順で、前に AI の判定が得られなかったコメントは新しいコメントの後に回す
  * @property {(threads: Iterable<Element>, id: string, verdict: { hide: boolean, category: string|null }, item: { id: string, text: string }) => { needsRescan: boolean }} applyVerdict
  *   AI の判定を、判定したコメントと一致する thread に反映する
@@ -2370,7 +2388,8 @@ function threadOfTarget(target) {
  *   件数バーの件数を集計する。total は集計したコメントの数（隠したスレッドの中の返信は数えない）
  * @property {(targets: Iterable<any>) => void} revalidate
  *   変化した要素を含む thread について、表示中のコメントが判定したものと同じかを同期で確かめ、
- *   違えば判定前（CSS で隠れる状態）に戻す
+ *   違えば判定前（CSS で隠れる状態）に戻す。判定から外すかどうかの結果だけが変わったときは、
+ *   判定から外して表示していたものが外れなくなった場合だけ判定前に戻し、ほかは次のスキャンに任せる
  * @property {(rules: import('./rules.js').CompiledRules) => void} setRules
  *   ルールを差し替える。表示か非表示に確定済みのコメントも、次の processThreads で新しいルールで判定し直す。
  *   新しいルールに当たらず、状態が AI の判定などルールに依らずに決まっていたものは、その状態を保つ
@@ -2443,6 +2462,7 @@ function createThreadProcessor({
       if (thread.hasAttribute(ID_ATTR)) {
         thread.removeAttribute(ID_ATTR);
         thread.removeAttribute(HASH_ATTR);
+        thread.removeAttribute(EXEMPTION_ATTR);
         thread.removeAttribute(EXPANDED_ATTR);
       }
       if (thread.getAttribute(REASON_ATTR) !== 'unreadable') debugLog('読めないコメント', extracted.unreadable);
@@ -2453,7 +2473,14 @@ function createThreadProcessor({
     const prevState = thread.getAttribute(STATE_ATTR);
     const same = thread.getAttribute(ID_ATTR) === extracted.id && thread.getAttribute(HASH_ATTR) === extracted.textHash;
     const settled = same && (prevState === 'shown' || prevState === 'hidden');
-    if (settled && judgedRulesVersion.get(thread) === rulesVersion) return;
+    // 判定から外す条件のデータは本文より遅れて届きうる。判定から外すかどうかの結果が変わったら確定済みでも
+    // 判定し直す（settled は変えないので、判定から外れなかったものは下の keepsVerdictWithoutRules の経路で AI の判定を保つ）。
+    // 条件のデータではなく結果を比べ、設定で外していない条件や結果を変えない変化では判定し直さない
+    const exemption = judgeExemption(extracted, currentRules, exempt);
+    const exemptionRecord = exemptionRecordOf(exemption);
+    const exemptionChanged = thread.getAttribute(EXEMPTION_ATTR) !== exemptionRecord;
+    if (settled && !exemptionChanged && judgedRulesVersion.get(thread) === rulesVersion) return;
+    if (exemptionChanged) thread.setAttribute(EXEMPTION_ATTR, exemptionRecord);
     if (!same) {
       thread.setAttribute(ID_ATTR, extracted.id);
       thread.setAttribute(HASH_ATTR, extracted.textHash);
@@ -2465,7 +2492,6 @@ function createThreadProcessor({
     }
     const aiUnresolved = same && thread.getAttribute(REASON_ATTR) === 'ai-unresolved';
 
-    const exemption = judgeExemption(extracted, currentRules, exempt);
     /** @type {ReturnType<typeof judgeByRules>} */
     const ruleResult = exemption === null ? judgeByRules(extracted, currentRules) : { reason: null };
     if (settled && exemption === null && ruleResult.reason === null && keepsVerdictWithoutRules(thread)) {
@@ -2604,6 +2630,18 @@ function createThreadProcessor({
           thread.getAttribute(ID_ATTR) === extracted.id &&
           thread.getAttribute(HASH_ATTR) === extracted.textHash
         ) {
+          const exemptionRecord = exemptionRecordOf(judgeExemption(extracted, currentRules, exempt));
+          if (thread.getAttribute(EXEMPTION_ATTR) === exemptionRecord) continue;
+          // 判定から外すかどうかの結果だけが変わった。判定から外して表示していたものが外れなくなったときだけ、
+          // 判定していない本文が見えたままにならないよう判定前に戻す。ほかは状態を保ち、次のスキャンが
+          // 属性の違いを見て判定し直す（AI の判定を保つため。判定前に戻すと AI に送り直しうる）。
+          // 本文は同じなので全文表示の固定と data-ycf-id / data-ycf-hash は残す
+          const exemptedNow =
+            thread.getAttribute(STATE_ATTR) === 'shown' && thread.getAttribute(REASON_ATTR) === 'exempt';
+          if (!exemptedNow || exemptionRecord !== '') continue;
+          thread.removeAttribute(STATE_ATTR);
+          thread.removeAttribute(REASON_ATTR);
+          debugLog('判定から外す条件が外れたので判定前に戻す', extracted.id);
           continue;
         }
         // 判定していないコメントが描画されないよう、次のスキャンを待たずに判定前に戻す。
@@ -3092,8 +3130,16 @@ function main() {
       commentsEl = found;
       if (found) {
         commentsObserver = new MutationObserver(onCommentsMutation);
-        // 自分が書き換える data-ycf-* 属性で再スキャンが回り続けないよう、attributes は監視しない
-        commentsObserver.observe(found, { childList: true, subtree: true, characterData: true });
+        // 自分が書き換える data-ycf-* 属性で再スキャンが回り続けないよう、属性は hidden だけを監視する。
+        // 固定の印と所有者の代替判定は hidden の有無で決まり（dom.js の readIsPinned / readIsOwner）、要素が残ったまま
+        // hidden だけが付け外しされうるため。コメント欄の中の hidden はこのスクリプトでは書き換えない
+        commentsObserver.observe(found, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+          attributes: true,
+          attributeFilter: ['hidden'],
+        });
       }
     }
     if (commentsEl && !commentsEl.isConnected) {
@@ -3130,7 +3176,8 @@ function main() {
     // NG 登録のボタンの差し込みは自分の変化なので除く（スキャンが差し込むたびにもう 1 回スキャンが回らないように）
     const relevant = records.filter((record) => !isBlockButtonInsertion(record));
     if (relevant.length === 0) return;
-    // 差し込まれた要素も渡す。target は差し込み先の親なので、差し込まれた thread は target からは見つからない
+    // 差し込まれた要素も渡す。target は差し込み先の親なので、差し込まれた thread は target からは見つからない。
+    // hidden の変化の通知では target が変化した要素なので、それを含む thread を確かめる
     processor.revalidate(relevant.flatMap((record) => [record.target, ...record.addedNodes]));
     scheduleScan();
   }
