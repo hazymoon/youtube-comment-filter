@@ -50,9 +50,24 @@ function exampleInsultCategory(categories) {
  * 強い言葉の批判・穏当な批判・改善要望を侮辱と並べ、並び順に関係なく false になる例として示す。
  */
 const EXAMPLE_COMMENTS = [
-  { id: 'c0', text: '字幕があると、音を出せない場所でも見られるので付けてもらえると助かります。', hide: false, insult: false },
-  { id: 'c1', text: 'この結論にはまったく納得できない。比較の条件がそろっていないと思う。', hide: false, insult: false },
-  { id: 'c2', text: '後半の手順には賛成しません。失敗したときの戻し方も説明してほしかったです。', hide: false, insult: false },
+  {
+    id: 'c0',
+    text: '字幕があると、音を出せない場所でも見られるので付けてもらえると助かります。',
+    hide: false,
+    insult: false,
+  },
+  {
+    id: 'c1',
+    text: 'この結論にはまったく納得できない。比較の条件がそろっていないと思う。',
+    hide: false,
+    insult: false,
+  },
+  {
+    id: 'c2',
+    text: '後半の手順には賛成しません。失敗したときの戻し方も説明してほしかったです。',
+    hide: false,
+    insult: false,
+  },
   { id: 'c3', text: 'こんな説明しかできないなんて、投稿者は本当に頭が足りないんだな。', hide: true, insult: true },
 ];
 
@@ -155,7 +170,9 @@ export function buildBatchInput(items, maxChars) {
     const seqId = `c${index}`;
     idMap.set(seqId, item.id);
     // Truncate by code points so surrogate pairs are never split.
-    const text = Array.from(String(item.text ?? '')).slice(0, maxChars).join('');
+    const text = Array.from(String(item.text ?? ''))
+      .slice(0, maxChars)
+      .join('');
     return { id: seqId, text };
   });
   return { input: `${BATCH_INPUT_HEADER}\n${JSON.stringify(payload)}`, idMap };
@@ -185,7 +202,11 @@ export function parseBatchResponse(text, idMap, categoryNames) {
   try {
     parsed = JSON.parse(text);
   } catch (error) {
-    return { verdicts, missing: allIds, error: `JSON として解釈できません: ${error instanceof Error ? error.message : String(error)}` };
+    return {
+      verdicts,
+      missing: allIds,
+      error: `JSON として解釈できません: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
   if (!Array.isArray(parsed)) {
     return { verdicts, missing: allIds, error: '応答が配列ではありません' };
@@ -201,7 +222,8 @@ export function parseBatchResponse(text, idMap, categoryNames) {
     // 同じ ID が重複したら最初の 1 件だけを採る（最初の要素の hide が不正なら、その ID は欠落扱い）
     seen.add(seqId);
     if (typeof element.hide !== 'boolean') continue;
-    const category = typeof element.category === 'string' && knownCategories.has(element.category) ? element.category : null;
+    const category =
+      typeof element.category === 'string' && knownCategories.has(element.category) ? element.category : null;
     verdicts.set(/** @type {string} */ (idMap.get(seqId)), { hide: element.hide, category });
   }
 

@@ -60,11 +60,15 @@ AI の有効化・カテゴリ・表示の速さなどは、スクリプト先�
 ## 開発
 
 ```sh
+npm ci
 npm test
+npm run lint
+npm run fmt
 npm run build
 ```
 
 `src/` を編集したら `npm run build` で `dist/` を作り直してコミットします（CI が作り直し忘れを検出します）。
+`npm run lint`（oxlint）と、`npm run fmt`（oxfmt）で整形した結果も CI が確かめます。整形だけを確かめるときは `npm run fmt:check` を使います。
 
 ### 手元の dist を実機で確かめる
 

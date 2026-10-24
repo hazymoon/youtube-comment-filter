@@ -59,21 +59,39 @@ function el({ tag = 'div', id = '', attrs = {}, text = '', children = [], query 
  * @param {boolean} [options.verified] commentEntity.author.isVerified
  * @param {boolean} [options.reply] 返信にする
  */
-function makeThread({ text = '本文', handle = '@alice', owner = false, staleBadge = false, pinned = null, verified = false, reply = false } = {}) {
+function makeThread({
+  text = '本文',
+  handle = '@alice',
+  owner = false,
+  staleBadge = false,
+  pinned = null,
+  verified = false,
+  reply = false,
+} = {}) {
   const query = {
     [CONTENT_TEXT_SELECTOR]: el({ tag: 'yt-attributed-string', text }),
-    [AUTHOR_LINK_SELECTOR]: el({ tag: 'a', attrs: owner ? { href: `/${handle}`, hidden: '' } : { href: `/${handle}` } }),
+    [AUTHOR_LINK_SELECTOR]: el({
+      tag: 'a',
+      attrs: owner ? { href: `/${handle}`, hidden: '' } : { href: `/${handle}` },
+    }),
   };
   if (owner || staleBadge) query[OWNER_BADGE_LINK_SELECTOR] = el({ tag: 'a', attrs: { href: `/${handle}` } });
-  if (pinned) query[PINNED_BADGE_SELECTOR] = el({ tag: PINNED_BADGE_SELECTOR, attrs: pinned === 'hidden' ? { hidden: '' } : {} });
+  if (pinned)
+    query[PINNED_BADGE_SELECTOR] = el({ tag: PINNED_BADGE_SELECTOR, attrs: pinned === 'hidden' ? { hidden: '' } : {} });
   const viewModel = el({
     tag: 'ytd-comment-view-model',
     id: 'comment',
     query,
     data: { commentId: 'c1' },
-    polymerController: { data: {}, __data: { commentEntity: { author: { channelId: CHANNEL_ID, isVerified: verified } } } },
+    polymerController: {
+      data: {},
+      __data: { commentEntity: { author: { channelId: CHANNEL_ID, isVerified: verified } } },
+    },
   });
-  const thread = el({ tag: 'ytd-comment-thread-renderer', children: [el({ id: 'comment-container', children: [viewModel] })] });
+  const thread = el({
+    tag: 'ytd-comment-thread-renderer',
+    children: [el({ id: 'comment-container', children: [viewModel] })],
+  });
   if (reply) el({ tag: 'ytd-comment-replies-renderer', children: [thread] });
   return thread;
 }
@@ -81,7 +99,11 @@ function makeThread({ text = '本文', handle = '@alice', owner = false, staleBa
 test('チャンネル所有者は、バッジがあり a#author-text が hidden のときだけ isOwner になる', () => {
   assert.equal(extractComment(makeThread({ owner: true })).author.isOwner, true);
   assert.equal(extractComment(makeThread()).author.isOwner, false);
-  assert.equal(extractComment(makeThread({ staleBadge: true })).author.isOwner, false, '使い回しで残ったバッジだけでは所有者にしない');
+  assert.equal(
+    extractComment(makeThread({ staleBadge: true })).author.isOwner,
+    false,
+    '使い回しで残ったバッジだけでは所有者にしない',
+  );
 });
 
 test('固定の印が hidden でなく、返信でないときだけ isPinned になる', () => {
@@ -101,7 +123,11 @@ test('commentEntity.author.isCreator が読めれば、所有者かはバッジ�
   // 認証済みのチャンネルにも所有者と同じバッジ（#author-comment-badge の a#name）が付く（docs/dom-structure.md）
   const verifiedBadge = makeThread({ owner: true, verified: true });
   authorOf(verifiedBadge).isCreator = false;
-  assert.equal(extractComment(verifiedBadge).author.isOwner, false, 'バッジがあっても isCreator が false なら所有者にしない');
+  assert.equal(
+    extractComment(verifiedBadge).author.isOwner,
+    false,
+    'バッジがあっても isCreator が false なら所有者にしない',
+  );
   assert.equal(extractComment(verifiedBadge).author.isVerified, true);
 
   const creator = makeThread({ owner: true });
@@ -125,18 +151,35 @@ test('judgeExemption は設定で有効な対象と許可ユーザだけを外�
   assert.equal(judgeExemption(owner, rules, NONE), null);
   assert.equal(judgeExemption({ author: { handle: '@x' }, isPinned: true }, rules, ALL), 'pinned');
   assert.equal(judgeExemption({ author: { handle: '@x', isVerified: true } }, rules, ALL), 'verified');
-  assert.equal(judgeExemption({ author: { handle: '@carol' } }, rules, NONE), 'allowUser', '許可ユーザは設定によらず外す');
+  assert.equal(
+    judgeExemption({ author: { handle: '@carol' } }, rules, NONE),
+    'allowUser',
+    '許可ユーザは設定によらず外す',
+  );
   assert.equal(judgeExemption({ author: { handle: '@x' } }, rules, ALL), null);
 });
 
 test('decideState は判定から外すコメントを、ルールより先に表示にする', () => {
-  const extracted = { id: 'c1', text: '死ね', textHash: 'h', author: { handle: '@x', channelId: null }, isReply: false };
-  assert.deepEqual(decideState({ extracted, ruleResult: { reason: 'ngWord' }, aiMode: 'ready', cached: null, exempt: true }), {
-    state: 'shown',
-    reason: 'exempt',
-    enqueue: false,
-  });
-  assert.equal(decideState({ extracted: { unreadable: 'x' }, ruleResult: null, aiMode: 'ready', cached: null, exempt: true }).state, 'pending');
+  const extracted = {
+    id: 'c1',
+    text: '死ね',
+    textHash: 'h',
+    author: { handle: '@x', channelId: null },
+    isReply: false,
+  };
+  assert.deepEqual(
+    decideState({ extracted, ruleResult: { reason: 'ngWord' }, aiMode: 'ready', cached: null, exempt: true }),
+    {
+      state: 'shown',
+      reason: 'exempt',
+      enqueue: false,
+    },
+  );
+  assert.equal(
+    decideState({ extracted: { unreadable: 'x' }, ruleResult: null, aiMode: 'ready', cached: null, exempt: true })
+      .state,
+    'pending',
+  );
 });
 
 test('「値」の allowUsers を読む', () => {

@@ -33,10 +33,13 @@ test('buildBatchInput は ID を連番に置き換え、idMap で元に戻せる
     { id: 'c0', text: 'ひとつめ' },
     { id: 'c1', text: 'ふたつめ' },
   ]);
-  assert.deepEqual([...idMap], [
-    ['c0', 'UgxLongCommentId1'],
-    ['c1', 'UgxLongCommentId2'],
-  ]);
+  assert.deepEqual(
+    [...idMap],
+    [
+      ['c0', 'UgxLongCommentId1'],
+      ['c1', 'UgxLongCommentId2'],
+    ],
+  );
 });
 
 test('buildBatchInput は code point 単位で切り詰め、サロゲートペアを壊さない', () => {
@@ -47,7 +50,10 @@ test('buildBatchInput は code point 単位で切り詰め、サロゲートペ�
 });
 
 test('parseBatchResponse: 正常な応答', () => {
-  const idMap = new Map([['c0', 'A'], ['c1', 'B']]);
+  const idMap = new Map([
+    ['c0', 'A'],
+    ['c1', 'B'],
+  ]);
   const result = parseBatchResponse(
     JSON.stringify([
       { id: 'c0', hide: false, category: null },
@@ -57,15 +63,21 @@ test('parseBatchResponse: 正常な応答', () => {
     NAMES,
   );
   assert.equal(result.error, undefined);
-  assert.deepEqual([...result.verdicts], [
-    ['A', { hide: false, category: null }],
-    ['B', { hide: true, category: '暴言' }],
-  ]);
+  assert.deepEqual(
+    [...result.verdicts],
+    [
+      ['A', { hide: false, category: null }],
+      ['B', { hide: true, category: '暴言' }],
+    ],
+  );
   assert.deepEqual(result.missing, []);
 });
 
 test('parseBatchResponse: JSON でない・配列でないときは error を入れて全件 missing', () => {
-  const idMap = new Map([['c0', 'A'], ['c1', 'B']]);
+  const idMap = new Map([
+    ['c0', 'A'],
+    ['c1', 'B'],
+  ]);
   for (const text of ['not json', '{"id":"c0","hide":true,"category":null}', 'null']) {
     const result = parseBatchResponse(text, idMap, NAMES);
     assert.equal(typeof result.error, 'string');
@@ -75,7 +87,11 @@ test('parseBatchResponse: JSON でない・配列でないときは error を入
 });
 
 test('parseBatchResponse: 余計な id は無視し、重複は最初の 1 件、欠落は missing', () => {
-  const idMap = new Map([['c0', 'A'], ['c1', 'B'], ['c2', 'C']]);
+  const idMap = new Map([
+    ['c0', 'A'],
+    ['c1', 'B'],
+    ['c2', 'C'],
+  ]);
   const result = parseBatchResponse(
     JSON.stringify([
       { id: 'c9', hide: true, category: '暴言' },
@@ -89,15 +105,21 @@ test('parseBatchResponse: 余計な id は無視し、重複は最初の 1 件�
     idMap,
     NAMES,
   );
-  assert.deepEqual([...result.verdicts], [
-    ['A', { hide: true, category: '暴言' }],
-    ['C', { hide: false, category: null }],
-  ]);
+  assert.deepEqual(
+    [...result.verdicts],
+    [
+      ['A', { hide: true, category: '暴言' }],
+      ['C', { hide: false, category: null }],
+    ],
+  );
   assert.deepEqual(result.missing, ['B']);
 });
 
 test('parseBatchResponse: hide が boolean でない要素は missing、enum 外の category は null', () => {
-  const idMap = new Map([['c0', 'A'], ['c1', 'B']]);
+  const idMap = new Map([
+    ['c0', 'A'],
+    ['c1', 'B'],
+  ]);
   const result = parseBatchResponse(
     JSON.stringify([
       { id: 'c0', hide: 'true', category: '暴言' },
@@ -111,19 +133,25 @@ test('parseBatchResponse: hide が boolean でない要素は missing、enum 外
 });
 
 test('buildResponseSchema は実測で通った形を返す', () => {
-  assert.deepEqual(buildResponseSchema([{ name: 'x', description: '' }, { name: 'y', description: '' }]), {
-    type: 'array',
-    items: {
-      type: 'object',
-      properties: {
-        id: { type: 'string' },
-        hide: { type: 'boolean' },
-        category: { type: ['string', 'null'], enum: ['x', 'y', null] },
+  assert.deepEqual(
+    buildResponseSchema([
+      { name: 'x', description: '' },
+      { name: 'y', description: '' },
+    ]),
+    {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          hide: { type: 'boolean' },
+          category: { type: ['string', 'null'], enum: ['x', 'y', null] },
+        },
+        required: ['id', 'hide', 'category'],
+        additionalProperties: false,
       },
-      required: ['id', 'hide', 'category'],
-      additionalProperties: false,
     },
-  });
+  );
 });
 
 test('promptVersion はカテゴリの変更で変わる', () => {
@@ -139,7 +167,10 @@ test('promptVersion はカテゴリの変更で変わる', () => {
 
 test('buildInitialPrompts は system と対話例 1 組を返す', () => {
   const prompts = buildInitialPrompts(AI_CATEGORIES);
-  assert.deepEqual(prompts.map((prompt) => prompt.role), ['system', 'user', 'assistant']);
+  assert.deepEqual(
+    prompts.map((prompt) => prompt.role),
+    ['system', 'user', 'assistant'],
+  );
 
   const system = prompts[0].content;
   for (const category of AI_CATEGORIES) {
@@ -151,7 +182,10 @@ test('buildInitialPrompts は system と対話例 1 組を返す', () => {
   // The example uses the same input format as real batches, and the answer covers every id.
   const exampleInput = parseInputPayload(prompts[1].content);
   const exampleOutput = JSON.parse(prompts[2].content);
-  assert.deepEqual(exampleOutput.map((v) => v.id), exampleInput.map((v) => v.id));
+  assert.deepEqual(
+    exampleOutput.map((v) => v.id),
+    exampleInput.map((v) => v.id),
+  );
   assert.ok(exampleOutput.some((v) => v.hide === false));
   assert.ok(exampleOutput.some((v) => v.hide === true && NAMES.includes(v.category)));
   for (const verdict of exampleOutput) {
@@ -164,7 +198,9 @@ test('buildInitialPrompts の対話例は spike の検証用コメントを含�
     'この方法には反対です。安全面の説明がもう少し欲しかった。',
     'お前みたいな頭の悪いやつは一生黙ってろ。',
   ];
-  const content = buildInitialPrompts(AI_CATEGORIES).map((prompt) => prompt.content).join('\n');
+  const content = buildInitialPrompts(AI_CATEGORIES)
+    .map((prompt) => prompt.content)
+    .join('\n');
   for (const text of spikeTexts) assert.equal(content.includes(text), false);
 });
 

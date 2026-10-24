@@ -58,7 +58,8 @@ function runWithComments() {
     visibilityState: 'visible',
     createElement: fakeElement,
     getElementById: () => null,
-    querySelector: (selector) => (selector === WATCH_COMMENTS_SELECTOR || selector === COMMENTS_SELECTOR ? comments : null),
+    querySelector: (selector) =>
+      selector === WATCH_COMMENTS_SELECTOR || selector === COMMENTS_SELECTOR ? comments : null,
     querySelectorAll: () => [],
     addEventListener() {},
   };
