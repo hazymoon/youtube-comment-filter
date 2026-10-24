@@ -1228,7 +1228,11 @@ const PINNED_BADGE_SELECTOR = '#pinned-comment-badge ytw-pinned-comment-badge-re
 /** 投稿日時のリンク（href に lc=<commentId>）。確認済み（同上） */
 const PUBLISHED_TIME_LINK_SELECTOR = '#published-time-text a';
 
-/** 本文。属性としては見えないが querySelector で取れる。確認済み（同上） */
+/**
+ * 本文の要素。属性としては見えないが querySelector で取れる。確認済み（同上）。
+ * 本文の文字列は polymer のデータの原文を優先し、この要素の textContent はそれが無いときに使う（dom.js の readBodyText）。
+ * 先頭の @メンションのリンクはこの要素から読む
+ */
 const CONTENT_TEXT_SELECTOR = '#content-text';
 
 /** 本文の代わりの取得先。確認済み（同上） */
@@ -1504,10 +1508,63 @@ function readLeadingMentionHref(contentEl, rawText) {
   return nonEmptyString(link.getAttribute?.('href'));
 }
 
+/** カスタム絵文字の名前の形（:whistle-red-blow: など） */
+const CUSTOM_EMOJI_NAME = /^:[^\s:]+:$/;
+
+/**
+ * 原文から、画像として描かれるカスタム絵文字の名前を取り除く。
+ * 原文にはカスタム絵文字が名前で入るが、画面では画像なので本文の要素の textContent には入らない。原文のまま使うと、
+ * NG ワードが絵文字の名前の一部（red など）に一致して隠れてしまう。どこが画像かは attachmentRuns の範囲
+ * （startIndex と length。UTF-16 の位置）で決まり、その範囲がカスタム絵文字の名前の形のときだけ取り除く。
+ * 文字の形だけで取り除くと、投稿者が本文に手で打った :scam: のような文字も消え、NG ワードの照合をすり抜けられるため。
+ * 普通の絵文字（😂 など）も画像の範囲だが、名前の形ではないので残す
+ * @param {string} original 原文
+ * @param {unknown} runs commentEntity.properties.content.attachmentRuns
+ * @returns {string}
+ */
+function removeCustomEmojiNames(original, runs) {
+  if (!Array.isArray(runs)) return original;
+  const ranges = runs
+    .filter((run) => run?.element?.type?.imageType)
+    .map((run) => ({ start: run.startIndex, end: run.startIndex + run.length }))
+    .filter(({ start, end }) => Number.isInteger(start) && Number.isInteger(end) && start >= 0 && end <= original.length)
+    .filter(({ start, end }) => CUSTOM_EMOJI_NAME.test(original.slice(start, end)))
+    // 後ろから取り除き、前の範囲の位置がずれないようにする
+    .sort((a, b) => b.start - a.start);
+  let text = original;
+  let limit = original.length;
+  for (const { start, end } of ranges) {
+    // 重なった範囲は、すでに取り除いた位置を指すので使わない
+    if (end > limit) continue;
+    text = text.slice(0, start) + text.slice(end);
+    limit = start;
+  }
+  return text;
+}
+
+/**
+ * 本文の文字列を返す。polymer のデータの原文（commentEntity.properties.content.content）が空でない文字列ならそれを使い、
+ * 無ければ本文の要素の textContent を使う。原文からはカスタム絵文字の名前を取り除く（removeCustomEmojiNames）。
+ * 原文が空白だけのとき（取り除いて空白だけになったときを含む）も要素から読む。空文字の本文は NG ワードも AI も経ずに
+ * 表示するので（decide.js）、データが埋まる前の空文字を採ると、表示中の本文を判定せずに見せてしまうため。
+ * 「日本語に翻訳」を押すと本文の要素の中身は訳文に差し替わるが、原文のデータは翻訳中も変わらない
+ * （訳文は commentEntity.translatedContent.content に入る。docs/dom-structure.md「データ」）。
+ * 表示中の文字列から読むと、翻訳・原文に戻すたびにハッシュが変わり、判定前に戻って AI に送り直すことになる。
+ * そのため訳文に含まれる NG ワードは照合しない。判定の対象は投稿者が書いた原文なので、これを受け入れる。
+ * @param {any} viewModel ytd-comment-view-model
+ * @param {any} contentEl 本文の要素
+ * @returns {string}
+ */
+function readBodyText(viewModel, contentEl) {
+  const content = viewModel?.polymerController?.__data?.commentEntity?.properties?.content;
+  const text = typeof content?.content === 'string' ? removeCustomEmojiNames(content.content, content.attachmentRuns) : '';
+  return text.trim() !== '' ? text : String(contentEl.textContent ?? '');
+}
+
 /**
  * @typedef {object} ExtractedComment
  * @property {string} id コメント ID
- * @property {string} text 本文（前後の空白を除く）。画像の絵文字だけの本文などは空文字
+ * @property {string} text 本文（前後の空白を除く。readBodyText）。本文の要素から読んだときは、画像の絵文字だけの本文などは空文字
  * @property {string} textHash 本文のハッシュ（hashString）
  * @property {{ handle: string|null, channelId: string|null, isOwner: boolean, isVerified: boolean }} author 投稿者。
  *   isOwner は動画のチャンネル所有者か、isVerified は認証バッジ付きのチャンネルか
@@ -1531,8 +1588,9 @@ function extractComment(threadEl) {
   const id = readCommentId(viewModel);
   if (!id) return { unreadable: 'コメント ID が取れません' };
 
+  // 先頭の @メンションの判定は本文の要素の中のリンクと比べるので、同じ要素の textContent を使う
   const rawText = String(contentEl.textContent ?? '');
-  const text = rawText.trim();
+  const text = readBodyText(viewModel, contentEl).trim();
   const authorData = viewModel.polymerController?.__data?.commentEntity?.author;
   const isReply = hasAncestor(threadEl, REPLIES_RENDERER_TAG);
   return {
