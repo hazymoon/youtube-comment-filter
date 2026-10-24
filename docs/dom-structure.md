@@ -91,7 +91,7 @@ div#main > div#header
 
 - 2026-10-23 に 2 本の動画で確認した。所有者のコメントは `isCreator: true` だった。所有者ではない認証済みのチャンネル 4 件は、`isCreator: false`・`isVerified: true` で、所有者と同じ `span#author-comment-badge` のバッジ（`a#name`）が付いていた。所有者かどうかはバッジでは見分けられない
 - 2026-10-24 に、英語のコメントの「日本語に翻訳」を押して確認した（Chrome + Violentmonkey）。翻訳すると `#content-text` の中身が訳文に差し替わるが、`commentEntity.properties.content.content` と `.polymerController.__data.contentText.content` は原文のままで、訳文は `commentEntity.translatedContent.content` に入った。「原文を見る」を押すと `#content-text` は原文に戻った
-- 同じ日に、翻訳していない 30 件（返信を含む）で、原文の文字列と `#content-text` の textContent を比べた。@返信の宛先（`@handle`）や改行を含め、26 件は一致した。食い違った 4 件はどれも画像の絵文字を含むコメントで、textContent には画像の絵文字が入らないが、原文には `😂` のような絵文字の文字や `:whistle-red-blow:` のようなカスタム絵文字の名前が入っていた。原文が空文字のコメントは無かった。DOM 層は、原文からカスタム絵文字の名前を取り除いてから本文として使う（NG ワードが絵文字の名前に一致しないように）
+- 同じ日に、翻訳していない 30 件（返信を含む）で、原文の文字列と `#content-text` の textContent を比べた。@返信の宛先（`@handle`）や改行を含め、26 件は一致した。食い違った 4 件はどれも画像の絵文字を含むコメントで、textContent には画像の絵文字が入らないが、原文には `😂` のような絵文字の文字や `:whistle-red-blow:` のようなカスタム絵文字の名前が入っていた。原文が空文字のコメントは無かった。画像の絵文字の位置は `commentEntity.properties.content.attachmentRuns` に入っていた（各要素の `startIndex`・`length` が原文の UTF-16 の位置で、`element.type.imageType` を持つ。`:whistle-red-blow:` は 0 から 18 文字、`😂` は 31 から 2 文字）。DOM 層は、この範囲のうちカスタム絵文字の名前の形のものだけを原文から取り除いて本文として使う（NG ワードが絵文字の名前に一致しないように。投稿者が手で打った `:名前:` は取り除かない）
 
 ## Shorts のコメント欄
 
