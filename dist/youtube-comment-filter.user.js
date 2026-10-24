@@ -1361,6 +1361,17 @@ function findOwnViewModel(threadEl) {
 }
 
 /**
+ * thread 自身のコメント本体の中の、段階表示を掛ける本文の枠（ytd-expander#expander の直下の #content）を返す。
+ * 入れ子の返信の本文の枠は返さない。
+ * @param {any} threadEl ytd-comment-thread-renderer
+ * @returns {any|null}
+ */
+function findOwnExpanderContent(threadEl) {
+  const expander = findOwnViewModel(threadEl)?.querySelector?.(EXPANDER_SELECTOR);
+  return expander ? directChildById(expander, EXPANDER_CONTENT_ID) : null;
+}
+
+/**
  * 祖先（自身は含まない）に指定のタグの要素があるかを、条件付きで調べる。
  * @param {any} el 起点
  * @param {string} tag タグ名
@@ -1842,10 +1853,20 @@ function buildStyles() {
   const hoverOf = (container) => `${container} ${VIEW_MODEL_TAG}:hover ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
   const shownContent = forEachScope((thread) => [contentOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`)]);
   const hoverContent = forEachScope((thread) => [hoverOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`)]);
-  // 全文固定の間にホバーしても 4 行に戻らないよう、ホバーの規則より詳細度の高いセレクタも並べる
+  // キーボードで本文の枠（main.js の decorateThread が Tab で止まれるようにする）にフォーカスがあるときも、
+  // ホバーと同じ量を見せる。本文の枠自体がフォーカスを持つので :has() は要らない。:hover とは別の規則にし、
+  // どちらかのセレクタを解釈できないブラウザでも、もう一方の規則が捨てられないようにする
+  const focusOf = (container) => `${contentOf(container)}:focus-visible`;
+  const focusContent = forEachScope((thread) => [focusOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`)]);
+  // 本文の枠はマスクと clip-path で自身の輪郭（outline）も切れるので、フォーカスの位置は親の ytd-expander の輪郭で示す。
+  // :has() を解釈しないブラウザで、ほかの規則を巻き込んで捨てられないよう別の規則にする
+  const focusRing = forEachScope((thread) => [
+    `${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID} ${EXPANDER_SELECTOR}:has(> #${EXPANDER_CONTENT_ID}:focus-visible)`,
+  ]);
+  // 全文固定の間にホバー・フォーカスしても 4 行に戻らないよう、それらの規則より詳細度の高いセレクタも並べる
   const expandedContent = forEachScope((thread) => {
     const container = `${thread}[${STATE_ATTR}="shown"][${EXPANDED_ATTR}] > #${COMMENT_CONTAINER_ID}`;
-    return [contentOf(container), hoverOf(container)];
+    return [contentOf(container), hoverOf(container), focusOf(container)];
   });
   // 行ごとに見せるマスク。既定の表示とホバーの両方に掛ける。--ycf-reveal が 0 から HOVER_LINES まで増えるにつれ、
   // i 行目は i から i+1 の間で左から右へ見えていく（読む順）。1 行目は文頭の PREVIEW_CHARS 文字ほどの幅から始めるので、
@@ -1868,6 +1889,21 @@ function buildStyles() {
   const revealClip =
     `inset(0 max(0px, min(100% - ${PREVIEW_CHARS}em, (1 - var(--ycf-reveal, 0)) * 100%)) ` +
     `calc(100% - (var(--ycf-reveal, 0) + 1) * ${LINE_HEIGHT_REM}rem) 0)`;
+  // ホバーとキーボードのフォーカスで見せるときの宣言。両方の規則で同じ量を見せるため、1 か所で組み立てる
+  const revealDeclarations = `  max-width: none !important;
+  -webkit-line-clamp: ${HOVER_LINES} !important;
+  line-height: ${LINE_HEIGHT_REM}rem !important;
+  --ycf-reveal: ${HOVER_LINES};
+  transition: --ycf-reveal ${HOVER_LINES * REVEAL_MS_PER_LINE}ms linear ${REVEAL_DELAY_MS}ms;
+  -webkit-mask-image: ${revealMasks};
+  mask-image: ${revealMasks};
+  -webkit-mask-size: 100% ${LINE_HEIGHT_REM}rem;
+  mask-size: 100% ${LINE_HEIGHT_REM}rem;
+  -webkit-mask-position: ${revealPositions};
+  mask-position: ${revealPositions};
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  clip-path: ${revealClip};`;
   const shownButtons = forEachScope((thread) =>
     [MORE_BUTTON_SELECTOR, LESS_BUTTON_SELECTOR].map(
       (button) => `${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID} ${EXPANDER_SELECTOR} > ${button}`,
@@ -1936,7 +1972,8 @@ ${hiddenThread} {
    既定では 1 行目のマスクで文頭の PREVIEW_CHARS 文字ほどの幅だけを見せ、2 行目以降を隠す。
    マスクはクリックの対象を減らさないので、clip-path で描画とクリックの対象も見せた範囲に絞る。
    行の高さはマスクの帯の高さと揃える。
-   見せる量の transition はホバーの規則にだけ書く（マウスを外したら待たずに文頭だけに戻すため） */
+   キーボードで本文の枠にフォーカスしたときもホバーと同じ量を見せ、Enter・Space で全文に切り替える（main.js）。
+   見せる量の transition はホバー・フォーカスの規則にだけ書く（マウスやフォーカスが外れたら待たずに文頭だけに戻すため） */
 ${shownContent} {
   display: -webkit-box !important;
   -webkit-box-orient: vertical !important;
@@ -1959,20 +1996,17 @@ ${shownContent} {
 /* ホバー: 待ち時間の後、1 行ずつ左から右へ見せる。行数・幅・マスクは既定の表示と同じにし、見せる量だけを増やす。
    clip-path は見せる量に連動させ、まだ見せていない行をクリックの対象から外す */
 ${hoverContent} {
-  max-width: none !important;
-  -webkit-line-clamp: ${HOVER_LINES} !important;
-  line-height: ${LINE_HEIGHT_REM}rem !important;
-  --ycf-reveal: ${HOVER_LINES};
-  transition: --ycf-reveal ${HOVER_LINES * REVEAL_MS_PER_LINE}ms linear ${REVEAL_DELAY_MS}ms;
-  -webkit-mask-image: ${revealMasks};
-  mask-image: ${revealMasks};
-  -webkit-mask-size: 100% ${LINE_HEIGHT_REM}rem;
-  mask-size: 100% ${LINE_HEIGHT_REM}rem;
-  -webkit-mask-position: ${revealPositions};
-  mask-position: ${revealPositions};
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  clip-path: ${revealClip};
+${revealDeclarations}
+}
+/* キーボードのフォーカス: ホバーと同じ量を同じ待ち時間で見せる */
+${focusContent} {
+${revealDeclarations}
+}
+/* フォーカスの位置を本文の枠の親の輪郭で示す */
+${focusRing} {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 ${expandedContent} {
   display: block !important;
@@ -2161,6 +2195,35 @@ function ensureBlockButton(viewModel, doc, onClick) {
     onClick(button);
   });
   header.appendChild(button);
+}
+
+/**
+ * 属性を値に合わせる。値が null なら取り除く。いまの値と同じなら書き込まない（不要な変化の通知と再描画を避ける）。
+ * @param {any} el 要素
+ * @param {string} name 属性名
+ * @param {string|null} value 値
+ */
+function syncAttribute(el, name, value) {
+  if (value === null) {
+    if (el.hasAttribute(name)) el.removeAttribute(name);
+  } else if (el.getAttribute(name) !== value) {
+    el.setAttribute(name, value);
+  }
+}
+
+/**
+ * 段階表示の本文の枠（dom.js の findOwnExpanderContent）を、キーボードで操作できるボタンにする、または戻す。
+ * 表示中のコメントでは Tab で止まれるようにし、全文表示の固定（EXPANDED_ATTR）を aria-expanded で示す。
+ * 表示中でないコメントでは取り除き、本文に止まらないようにする。
+ * @param {any} body 本文の枠。無ければ何もしない
+ * @param {boolean} enabled ボタンにするか
+ * @param {boolean} expanded 全文表示に固定しているか
+ */
+function syncBodyControl(body, enabled, expanded) {
+  if (!body) return;
+  syncAttribute(body, 'tabindex', enabled ? '0' : null);
+  syncAttribute(body, 'role', enabled ? 'button' : null);
+  syncAttribute(body, 'aria-expanded', enabled ? String(expanded) : null);
 }
 
 /**
@@ -3053,7 +3116,7 @@ function main() {
     cache,
     getAiMode: () => lm.getState().mode,
     debugLog,
-    onShown: (thread) => ensureBlockButton(findOwnViewModel(thread), doc, onBlockClick),
+    onShown: (thread) => decorateThread(thread),
   });
 
   const queue = createAiQueue({
@@ -3155,14 +3218,24 @@ function main() {
     const startedAt = DEBUG ? performance.now() : 0;
     const threads = currentThreads();
     const items = processor.processThreads(threads);
-    for (const thread of threads) {
-      if (thread.getAttribute(STATE_ATTR) === 'shown') ensureBlockButton(findOwnViewModel(thread), doc, onBlockClick);
-    }
+    for (const thread of threads) decorateThread(thread);
     // 遷移中は入れない。判定中のまま残った thread は、遷移の完了後のスキャンで入れる
     if (items.length > 0 && navigation.canEnqueue()) queue.enqueue(items);
     renderBar();
     // 工程 3 でスキャンの所要時間を実ページで測るための記録
     if (DEBUG) debugLog('スキャン', threads.length, '件', `${(performance.now() - startedAt).toFixed(1)}ms`);
+  }
+
+  /**
+   * 表示中のコメントに NG 登録のボタンを付け、本文の枠をキーボードで操作できるようにする。
+   * 表示中でなくなったコメントの本文の枠は戻す（Tab で止まらないようにする）。
+   * 属性はコメント欄の監視の対象（hidden だけ）に入らないので、書き込んでもスキャンは回らない
+   * @param {Element} thread ytd-comment-thread-renderer
+   */
+  function decorateThread(thread) {
+    const shown = thread.getAttribute(STATE_ATTR) === 'shown';
+    if (shown) ensureBlockButton(findOwnViewModel(thread), doc, onBlockClick);
+    syncBodyControl(findOwnExpanderContent(thread), shown, thread.hasAttribute(EXPANDED_ATTR));
   }
 
   /** スキャンを予約する。予約済みなら重ねない。 */
@@ -3283,6 +3356,31 @@ function main() {
   }
 
   /**
+   * 段階表示を切り替える thread を返す。返信の本文の操作で親を切り替えないよう、ytd-expander#expander が
+   * いちばん内側の thread の直下の #comment-container の中にあり、その thread が監視中のコメント欄の
+   * 表示中のコメントのときだけ返す。
+   * @param {any} expander ytd-expander#expander
+   * @returns {Element|null}
+   */
+  function toggleTargetOf(expander) {
+    const thread = expander.closest(THREAD_TAG);
+    const container = thread ? directChildById(thread, COMMENT_CONTAINER_ID) : null;
+    if (!thread || !container || !container.contains(expander)) return null;
+    if (thread.getAttribute(STATE_ATTR) !== 'shown' || !commentsEl || !commentsEl.contains(thread)) return null;
+    return thread;
+  }
+
+  /**
+   * 全文表示の固定を切り替え、本文の枠の aria-expanded を合わせる。
+   * EXPANDED_ATTR の変化はコメント欄の監視に届かずスキャンが回らないので、ここで合わせる
+   * @param {Element} thread ytd-comment-thread-renderer
+   */
+  function toggleExpanded(thread) {
+    const expanded = thread.toggleAttribute(EXPANDED_ATTR);
+    syncBodyControl(findOwnExpanderContent(thread), true, expanded);
+  }
+
+  /**
    * 段階表示のクリック。本文（thread の直下の #comment-container 内の ytd-expander#expander）のクリックで
    * 全文表示の固定を切り替える。リンク・ボタン上と、文字列の選択中は反応しない。
    * @param {MouseEvent} event クリック
@@ -3292,19 +3390,39 @@ function main() {
     if (!target || typeof target.closest !== 'function') return;
     const expander = target.closest(EXPANDER_SELECTOR);
     if (!expander) return;
+    // 本文の枠自身もキーボードで操作できるよう role="button" を持つので（decorateThread）、本文の枠そのものは除く
+    const body = directChildById(expander, EXPANDER_CONTENT_ID);
     const interactive = target.closest(INTERACTIVE_SELECTOR);
-    if (interactive && expander.contains(interactive)) return;
+    if (interactive && interactive !== body && expander.contains(interactive)) return;
     const selection = doc.getSelection?.();
     if (selection && !selection.isCollapsed && selection.toString() !== '') return;
-    // 返信の本文のクリックで親を切り替えないよう、いちばん内側の thread の直下の #comment-container の中かを確かめる
-    const thread = expander.closest(THREAD_TAG);
-    const container = thread ? directChildById(thread, COMMENT_CONTAINER_ID) : null;
-    if (!thread || !container || !container.contains(expander)) return;
-    if (thread.getAttribute(STATE_ATTR) !== 'shown' || !commentsEl || !commentsEl.contains(thread)) return;
-    thread.toggleAttribute(EXPANDED_ATTR);
+    const thread = toggleTargetOf(expander);
+    if (thread) toggleExpanded(thread);
+  }
+
+  /**
+   * 段階表示のキー操作。本文の枠にフォーカスがあるとき、Enter・Space で全文表示の固定を切り替える（クリックと同じ）。
+   * 本文の中のリンクなどからのキーと、修飾キー付き・押しっぱなしの繰り返し・変換中のキーは、それぞれの既定の動きに任せる。
+   * 切り替えたときは、Space でページがスクロールしたり YouTube のショートカット（再生・一時停止）が動いたりしないよう、
+   * 既定の動きと伝播を止める。YouTube のリスナーより先に受け取れるよう、capture で受ける
+   * @param {KeyboardEvent} event キー入力
+   */
+  function onDocumentKeydown(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat || event.isComposing) return;
+    const target = /** @type {any} */ (event.target);
+    if (!target || typeof target.closest !== 'function') return;
+    const expander = target.closest(EXPANDER_SELECTOR);
+    if (!expander || directChildById(expander, EXPANDER_CONTENT_ID) !== target) return;
+    const thread = toggleTargetOf(expander);
+    if (!thread) return;
+    event.preventDefault();
+    event.stopPropagation();
+    toggleExpanded(thread);
   }
 
   doc.addEventListener('click', onDocumentClick);
+  doc.addEventListener('keydown', onDocumentKeydown, true);
 
   doc.addEventListener(NAVIGATE_START_EVENT, () => {
     // 完了までは順番待ちに入れない（DOM に残る前の動画の thread を入れ直さないため）

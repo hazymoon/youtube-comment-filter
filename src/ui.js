@@ -97,6 +97,35 @@ export function ensureBlockButton(viewModel, doc, onClick) {
 }
 
 /**
+ * 属性を値に合わせる。値が null なら取り除く。いまの値と同じなら書き込まない（不要な変化の通知と再描画を避ける）。
+ * @param {any} el 要素
+ * @param {string} name 属性名
+ * @param {string|null} value 値
+ */
+function syncAttribute(el, name, value) {
+  if (value === null) {
+    if (el.hasAttribute(name)) el.removeAttribute(name);
+  } else if (el.getAttribute(name) !== value) {
+    el.setAttribute(name, value);
+  }
+}
+
+/**
+ * 段階表示の本文の枠（dom.js の findOwnExpanderContent）を、キーボードで操作できるボタンにする、または戻す。
+ * 表示中のコメントでは Tab で止まれるようにし、全文表示の固定（EXPANDED_ATTR）を aria-expanded で示す。
+ * 表示中でないコメントでは取り除き、本文に止まらないようにする。
+ * @param {any} body 本文の枠。無ければ何もしない
+ * @param {boolean} enabled ボタンにするか
+ * @param {boolean} expanded 全文表示に固定しているか
+ */
+export function syncBodyControl(body, enabled, expanded) {
+  if (!body) return;
+  syncAttribute(body, 'tabindex', enabled ? '0' : null);
+  syncAttribute(body, 'role', enabled ? 'button' : null);
+  syncAttribute(body, 'aria-expanded', enabled ? String(expanded) : null);
+}
+
+/**
  * 変化の通知が、NG 登録のボタンを差し込んだだけのものか。
  * ensureBlockButton の差し込みもコメント欄の監視に届くので、これで再スキャンを回さないよう除くために使う。
  * @param {{ type: string, addedNodes: ArrayLike<any>, removedNodes: ArrayLike<any> }} record MutationRecord
