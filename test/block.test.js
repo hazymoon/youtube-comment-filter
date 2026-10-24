@@ -90,7 +90,8 @@ test('NG 登録のボタンは既定で隠し、判定から外したもの以�
   assert.ok(css.includes(shownSelector), shownSelector);
   const base = css.indexOf(`.${BLOCK_BUTTON_CLASS} {`);
   assert.notEqual(base, -1);
-  assert.match(css.slice(base, css.indexOf('}', base)), /display:\s*none\s*!important/);
+  assert.match(css.slice(base, css.indexOf('}', base)), /opacity:\s*0\s*!important/);
+  assert.match(css.slice(base, css.indexOf('}', base)), /pointer-events:\s*none\s*!important/);
 });
 
 /**

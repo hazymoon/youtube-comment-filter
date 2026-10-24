@@ -37,7 +37,7 @@ test('動画ページかを JS が付ける html の属性でも判定し、ytd-
   assert.match(ruleOf(`${WATCH} ${THREAD}[data-ycf-state="pending"] > #comment-container`).body, /visibility:\s*hidden/);
   assert.match(
     ruleOf(`${WATCH} ${THREAD}[data-ycf-state="shown"] > #comment-container ytd-expander#expander > #content`).body,
-    /-webkit-line-clamp:\s*1/,
+    /-webkit-line-clamp:\s*4/,
   );
 });
 
@@ -73,7 +73,7 @@ test('Shorts のコメント欄（ytd-shorts の中の id の無い ytd-comments
     }
     assert.match(
       ruleOf(`${base} ${THREAD}[data-ycf-state="shown"] > #comment-container ytd-expander#expander > #content`).body,
-      /-webkit-line-clamp:\s*1/,
+      /-webkit-line-clamp:\s*4/,
     );
   }
 });

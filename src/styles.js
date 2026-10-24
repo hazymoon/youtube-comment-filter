@@ -141,11 +141,29 @@ export function buildStyles() {
     ),
   );
   const hiddenThread = forEachScope((thread) => [`${thread}[${STATE_ATTR}="hidden"]`]);
-  // NG 登録のボタンは、判定から外したもの以外の表示中のコメントにホバーしたときだけ見せる。
-  // 直下結合子で書き、返信にホバーしたときに親のボタンが出ないようにする
-  const blockButtonShown = forEachScope((thread) => [
-    `${thread}[${STATE_ATTR}="shown"]:not([${REASON_ATTR}="exempt"]) > #${COMMENT_CONTAINER_ID} ${VIEW_MODEL_TAG}:hover .${BLOCK_BUTTON_CLASS}`,
-  ]);
+  // NG 登録のボタンは、判定から外したもの以外の表示中のコメントにホバーしたとき、またはコメント内に
+  // キーボードのフォーカスがあるときだけ見せる。:focus-within だとマウスのクリックで残ったフォーカスにも当たり、
+  // クリック後にボタンが出たままになるので、:has(:focus-visible) を使う。
+  // 見せないときも display:none にはせず、透明にしてマウスで押せなくするだけにする。Chrome はフォーカスを移すとき
+  // 先に元の要素（ボタンの前にある投稿時刻のリンクなど）からフォーカスを外すので、その瞬間に :has(:focus-visible) が
+  // 外れる。ボタンが display:none に戻るとフォーカスできない要素になり、タブでの移動が取りやめになる。
+  // ボタン自身の :focus-visible でも見せ、フォーカスが移った瞬間から見えるようにする。
+  // 直下結合子で書き、返信にホバー・フォーカスしたときに親のボタンが出ないようにする
+  const blockButtonOf = (thread, pseudo) =>
+    `${thread}[${STATE_ATTR}="shown"]:not([${REASON_ATTR}="exempt"]) > #${COMMENT_CONTAINER_ID} ${VIEW_MODEL_TAG}${pseudo} .${BLOCK_BUTTON_CLASS}`;
+  const blockButtonHover = forEachScope((thread) => [blockButtonOf(thread, ':hover')]);
+  const blockButtonSelfFocus = forEachScope((thread) => [`${blockButtonOf(thread, '')}:focus-visible`]);
+  // 既定の規則がボタンをタブの順序に残すので、押せないコメントのボタンは display:none にしてタブでも移れないようにする。
+  // :has() を解釈しないブラウザでも当たるよう、:has() を使わずに書く
+  const blockButtonUnusable = forEachScope((thread) =>
+    [`[${STATE_ATTR}="shown"][${REASON_ATTR}="exempt"]`, `:not([${STATE_ATTR}="shown"])`].map(
+      (cond) => `${thread}${cond} > #${COMMENT_CONTAINER_ID} .${BLOCK_BUTTON_CLASS}`,
+    ),
+  );
+  // :has() を解釈しないブラウザでは、:has() を含むセレクタリストの規則全体が捨てられる。
+  // ホバーの規則を巻き込まないよう別の規則にする。:is(:hover, :has(...)) にまとめる形は、:is() の中の
+  // 無効なセレクタを読み飛ばすかどうかがブラウザの実装時期で揺れたため採らない
+  const blockButtonFocus = forEachScope((thread) => [blockButtonOf(thread, ':has(:focus-visible)')]);
 
   const contentOf = (container) => `${container} ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
   const hoverOf = (container) => `${container} ${VIEW_MODEL_TAG}:hover ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
@@ -156,14 +174,27 @@ export function buildStyles() {
     const container = `${thread}[${STATE_ATTR}="shown"][${EXPANDED_ATTR}] > #${COMMENT_CONTAINER_ID}`;
     return [contentOf(container), hoverOf(container)];
   });
-  // ホバーで見せる行のマスク。--ycf-reveal が 0 から HOVER_LINES まで増えるにつれ、i 行目は i から i+1 の間で
-  // 左から右へ見えていく（読む順）。1 行目は既定の表示で見えている文頭の幅から始める
+  // 行ごとに見せるマスク。既定の表示とホバーの両方に掛ける。--ycf-reveal が 0 から HOVER_LINES まで増えるにつれ、
+  // i 行目は i から i+1 の間で左から右へ見えていく（読む順）。1 行目は文頭の PREVIEW_CHARS 文字ほどの幅から始めるので、
+  // 見せる量が 0 の既定の表示では文頭だけが見え、2 行目以降は隠れる。
+  // @property が効かないブラウザでは --ycf-reveal が未定義になり、mask-image ごと無効になって全文が見えてしまう。
+  // 既定値 0 を持たせ、そのときも既定の表示は文頭だけに留める
   const revealMasks = Array.from({ length: HOVER_LINES }, (_, line) => {
-    const progress = `clamp(0, var(--ycf-reveal) - ${line}, 1) * 100%`;
+    const progress = `clamp(0, var(--ycf-reveal, 0) - ${line}, 1) * 100%`;
     const stop = line === 0 ? `max(${PREVIEW_CHARS}em, calc(${progress}))` : `calc(${progress})`;
     return `linear-gradient(to right, #000 ${stop}, transparent ${stop})`;
   }).join(', ');
   const revealPositions = Array.from({ length: HOVER_LINES }, (_, line) => (line === 0 ? '0 0' : `0 ${line * LINE_HEIGHT_REM}rem`)).join(', ');
+  // マスクは見た目だけを隠し、透明な部分にあるリンクもクリック・ホバーに反応する。clip-path は描画と
+  // クリックの対象を両方切り、レイアウトには影響しないので、確保した高さを保ったまま見せた範囲だけを対象にする。
+  // 既定の表示は 1 行目の文頭だけを切り出す。見せる量の変数や min()/max() に頼らない単純な式にして、
+  // マスクの式を解釈できないブラウザで mask-image が無効になっても、文頭より先が見えないようにする（fail-closed）
+  const previewClip = `inset(0 calc(100% - ${PREVIEW_CHARS}em) calc(100% - ${LINE_HEIGHT_REM}rem) 0)`;
+  // ホバーでは見せる量に連動させる。下端は見せる量に 1 行を足した高さで、見せている途中の行と 1 行目を含む。
+  // 右端は 1 行目を見せ終えるまで、見せた幅（文頭の PREVIEW_CHARS 文字ほど以上）に合わせる
+  const revealClip =
+    `inset(0 max(0px, min(100% - ${PREVIEW_CHARS}em, (1 - var(--ycf-reveal, 0)) * 100%)) ` +
+    `calc(100% - (var(--ycf-reveal, 0) + 1) * ${LINE_HEIGHT_REM}rem) 0)`;
   const shownButtons = forEachScope((thread) =>
     [MORE_BUTTON_SELECTOR, LESS_BUTTON_SELECTOR].map(
       (button) => `${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID} ${EXPANDER_SELECTOR} > ${button}`,
@@ -225,20 +256,35 @@ ${hiddenThread} {
   initial-value: 0;
 }
 
-/* 表示: 段階表示（既定は文頭の PREVIEW_CHARS 文字ほど、ホバーで 4 行、クリックで全文）。
-   1 行に収まる短いコメントでも全文が見えないよう、既定では行数に加えて幅も制限する。
+/* 表示: 段階表示（既定は文頭の PREVIEW_CHARS 文字ほど、ホバーで HOVER_LINES 行、クリックで全文）。
+   ホバーで本文の高さが伸縮してレイアウトが動かないよう、既定でもホバーと同じ -webkit-line-clamp（HOVER_LINES）と
+   幅で本文を組み、見せる量は行ごとのマスクだけで変える。line-clamp は行数の上限なので、高さは本文の行数
+   （HOVER_LINES 行まで）で決まり、ホバーの前後で変わらない。1 行に収まる短いコメントでも全文が見えないよう、
+   既定では 1 行目のマスクで文頭の PREVIEW_CHARS 文字ほどの幅だけを見せ、2 行目以降を隠す。
+   マスクはクリックの対象を減らさないので、clip-path で描画とクリックの対象も見せた範囲に絞る。
+   行の高さはマスクの帯の高さと揃える。
    見せる量の transition はホバーの規則にだけ書く（マウスを外したら待たずに文頭だけに戻すため） */
 ${shownContent} {
   display: -webkit-box !important;
   -webkit-box-orient: vertical !important;
   overflow: hidden !important;
   max-height: none !important;
-  max-width: ${PREVIEW_CHARS}em !important;
+  max-width: none !important;
   line-height: ${LINE_HEIGHT_REM}rem !important;
-  -webkit-line-clamp: 1 !important;
+  -webkit-line-clamp: ${HOVER_LINES} !important;
   cursor: pointer;
+  -webkit-mask-image: ${revealMasks};
+  mask-image: ${revealMasks};
+  -webkit-mask-size: 100% ${LINE_HEIGHT_REM}rem;
+  mask-size: 100% ${LINE_HEIGHT_REM}rem;
+  -webkit-mask-position: ${revealPositions};
+  mask-position: ${revealPositions};
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  clip-path: ${previewClip};
 }
-/* ホバー: 待ち時間の後、1 行ずつ左から右へ見せる。行の高さをマスクの帯の高さと揃える */
+/* ホバー: 待ち時間の後、1 行ずつ左から右へ見せる。行数・幅・マスクは既定の表示と同じにし、見せる量だけを増やす。
+   clip-path は見せる量に連動させ、まだ見せていない行をクリックの対象から外す */
 ${hoverContent} {
   max-width: none !important;
   -webkit-line-clamp: ${HOVER_LINES} !important;
@@ -253,6 +299,7 @@ ${hoverContent} {
   mask-position: ${revealPositions};
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
+  clip-path: ${revealClip};
 }
 ${expandedContent} {
   display: block !important;
@@ -261,14 +308,17 @@ ${expandedContent} {
   -webkit-line-clamp: unset !important;
   -webkit-mask-image: none;
   mask-image: none;
+  clip-path: none;
 }
 ${shownButtons} {
   display: none !important;
 }
 
-/* NG 登録のボタン */
+/* NG 登録のボタン。タブで移れるよう display:none にせず、透明にしてマウスで押せなくする */
 .${BLOCK_BUTTON_CLASS} {
-  display: none !important;
+  display: inline-block !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
   margin-left: 8px;
   padding: 0 6px;
   border: 1px solid currentColor;
@@ -283,8 +333,24 @@ ${shownButtons} {
 html[dark] .${BLOCK_BUTTON_CLASS} {
   color: ${barColor('subtext', 'dark')};
 }
-${blockButtonShown} {
+${blockButtonHover} {
   display: inline-block !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+${blockButtonFocus} {
+  display: inline-block !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+${blockButtonSelfFocus} {
+  display: inline-block !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+/* 判定から外したコメント・表示中でないコメントのボタンはタブでも移れないようにする */
+${blockButtonUnusable} {
+  display: none !important;
 }
 
 /* 件数バー */

@@ -137,6 +137,14 @@ export const ID_ATTR = 'data-ycf-id';
 /** thread に付ける、判定した本文のハッシュ */
 export const HASH_ATTR = 'data-ycf-hash';
 
+/**
+ * thread に付ける、判定したときの judgeExemption の結果（判定から外さないときは空文字）。
+ * 判定から外す条件のデータ（所有者・固定・認証済み・投稿者）は本文より遅れて届きうるので、結果が変わったら判定し直す。
+ * 条件のデータではなく結果を比べるのは、設定で外していない条件や結果を変えない変化で判定し直さないため。
+ * HASH_ATTR は AI の判定のキャッシュのキーなので、結果はそこに混ぜずこの属性で比べる
+ */
+export const EXEMPTION_ATTR = 'data-ycf-exemption';
+
 /** thread に付ける。付いている間は本文を全文表示に固定する */
 export const EXPANDED_ATTR = 'data-ycf-expanded';
 
