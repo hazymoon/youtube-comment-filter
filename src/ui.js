@@ -7,6 +7,7 @@ import { BAR_ID, BLOCK_BUTTON_CLASS, HEADER_AUTHOR_SELECTOR } from './selectors.
 /**
  * @typedef {object} CountBar
  * @property {HTMLElement} element バーの要素
+ * @property {HTMLElement} button 開閉ボタン。NG 登録で表示中のコメントが無くなったときのフォーカスの移し先にも使う（focus.js）
  * @property {(state: { open: boolean, countText: string, statusText: string, visible: boolean }) => void} update
  *   表示を更新する。変わった部分だけ書き換える
  * @property {(commentsEl: Element) => void} attach コメント欄の直前の兄弟として差し込む（差し込み済みなら何もしない）
@@ -51,6 +52,7 @@ export function createCountBar({ doc, onToggle }) {
 
   return {
     element,
+    button,
     update({ open, countText, statusText, visible }) {
       setText(button, open ? 'コメントを隠す' : 'コメントを表示');
       button.setAttribute('aria-expanded', open ? 'true' : 'false');

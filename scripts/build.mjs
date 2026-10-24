@@ -43,6 +43,7 @@ export const MODULE_ORDER = [
   'queue.js',
   'selectors.js',
   'dom.js',
+  'focus.js',
   'decide.js',
   'styles.js',
   'ui.js',

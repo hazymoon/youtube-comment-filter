@@ -1552,6 +1552,116 @@ function extractComment(threadEl) {
   };
 }
 
+// ---- focus.js ----
+/**
+ * @file NG 登録で thread が隠れた後に、フォーカスを移す先を決める。
+ *
+ * NG 登録のボタンは thread の中にあり、登録した後のスキャンで thread ごと display:none になる。
+ * そのままだとフォーカスが body に落ち、キーボードで操作している人は次の Tab がどこから始まるか分からなくなるので、
+ * 近くの表示中のコメントへ移す。
+ * main.js から DOM の読み書きを切り離し、偽の要素でテストできるようにするためにこのファイルに置く。
+ */
+
+
+/**
+ * コメントの中でフォーカスを移す要素の代わりの候補。投稿者のリンクが無いときに使う。
+ * NG 登録のボタン（button）はホバー中しか表示しない（styles.js）ので、表示されていない要素へ移さないよう a だけにする
+ */
+const FALLBACK_LINK_SELECTOR = 'a[href]';
+
+/**
+ * thread が画面に出ているか。表示状態が shown で、祖先の thread も隠れていないものに限る。
+ * 親を隠すと返信は親ごと消えるが、返信の表示状態は shown のまま残りうるため、祖先も確かめる。
+ * @param {any} thread ytd-comment-thread-renderer
+ * @returns {boolean}
+ */
+function isVisibleThread(thread) {
+  return thread?.isConnected !== false && thread?.getAttribute?.(STATE_ATTR) === 'shown' && !isInsideHiddenThread(thread);
+}
+
+/**
+ * thread の中でフォーカスを移す要素を返す。投稿者のリンク（AUTHOR_LINK_SELECTOR）を選び、無ければ本体の中の最初のリンクにする。
+ * 入れ子の返信の要素を選ばないよう、thread の直下のコメント本体（findOwnViewModel）の中だけを探す。
+ * @param {any} thread ytd-comment-thread-renderer
+ * @returns {any|null} フォーカスできる要素。無ければ null
+ */
+function focusableIn(thread) {
+  const viewModel = findOwnViewModel(thread);
+  const target = viewModel?.querySelector?.(AUTHOR_LINK_SELECTOR) ?? viewModel?.querySelector?.(FALLBACK_LINK_SELECTOR) ?? null;
+  return typeof target?.focus === 'function' ? target : null;
+}
+
+/**
+ * フォーカスがその thread が隠れたせいで失われたか（または失われようとしているか）。
+ * 隠した直後はブラウザがまだフォーカスを body へ移していないので、thread の中にあるときも失われたとみなす。
+ * 利用者がすでに別の場所へ移していたら、そこから奪わない。
+ * @param {any} thread NG 登録のボタンが押された thread
+ * @param {any} activeElement document.activeElement
+ * @param {any} doc document
+ * @returns {boolean}
+ */
+function isFocusLost(thread, activeElement, doc) {
+  if (!activeElement || activeElement === doc?.body || activeElement === doc?.documentElement) return true;
+  return typeof thread?.contains === 'function' && thread.contains(activeElement);
+}
+
+/**
+ * thread が隠れたか。表示状態が hidden か、祖先の thread が隠れていれば隠れている。
+ * 判定待ち（pending）は NG 登録では起きないので、隠れたとはみなさない。
+ * @param {any} thread ytd-comment-thread-renderer
+ * @returns {boolean}
+ */
+function isHiddenThread(thread) {
+  return thread.getAttribute?.(STATE_ATTR) === 'hidden' || isInsideHiddenThread(thread);
+}
+
+/**
+ * NG 登録のボタンが押された thread が隠れたときに、フォーカスを移す先を決める。
+ *
+ * - thread がまだ表示中（ルールに当たらなかったなど）なら移さない
+ * - フォーカスが thread の外の要素にあるなら移さない（利用者が移した先を奪わない）
+ * - 移す先は threads（文書順。返信も含む）で thread より後ろの、いちばん近い表示中のコメント。
+ *   無ければ thread より前の、いちばん近い表示中のコメント。それも無ければ fallback（件数バーのボタン）
+ * - 同じスキャンで隠れた同じ投稿者のコメントや、隠した thread の中の返信は表示中ではないので飛ばす
+ * - thread が DOM から外れて threads に無いときは、前後が分からないので fallback にする
+ *   （件数バーはコメント欄の直前にあるので、次の Tab で先頭のコメントへ進める）
+ * @param {object} options
+ * @param {any[]} options.threads コメント欄の thread（文書順）
+ * @param {any} options.thread NG 登録のボタンが押された thread
+ * @param {any} options.activeElement document.activeElement
+ * @param {any} options.doc document（body との比較に使う）
+ * @param {any} [options.fallback] 表示中のコメントが無いときの移し先
+ * @returns {any|null} フォーカスを移す要素。移さないときは null
+ */
+function pickFocusTarget({ threads, thread, activeElement, doc, fallback = null }) {
+  if (!thread) return null;
+  if (thread.isConnected !== false && !isHiddenThread(thread)) return null;
+  if (!isFocusLost(thread, activeElement, doc)) return null;
+  const index = threads.indexOf(thread);
+  if (index !== -1) {
+    const ordered = [...threads.slice(index + 1), ...threads.slice(0, index).reverse()];
+    for (const candidate of ordered) {
+      if (!isVisibleThread(candidate)) continue;
+      const target = focusableIn(candidate);
+      if (target) return target;
+    }
+  }
+  return typeof fallback?.focus === 'function' ? fallback : null;
+}
+
+/**
+ * pickFocusTarget の結果へフォーカスを移す。
+ * focus() は既定のスクロールのまま呼ぶ。ブラウザは移した要素が画面の外にあるときだけスクロールするので、
+ * キーボードで操作している人には移した先が見え、マウスで押した人には、隣のコメントへ移すだけでページは動かない。
+ * @param {Parameters<typeof pickFocusTarget>[0]} options pickFocusTarget と同じ
+ * @returns {any|null} フォーカスを移した要素。移さなかったときは null
+ */
+function restoreFocusAfterHide(options) {
+  const target = pickFocusTarget(options);
+  target?.focus();
+  return target;
+}
+
 // ---- decide.js ----
 /**
  * @file コメントの表示状態の決定と、件数バーの文字列の組み立て（純粋関数）。
@@ -2038,6 +2148,7 @@ ${darkBarColorRules()}
 /**
  * @typedef {object} CountBar
  * @property {HTMLElement} element バーの要素
+ * @property {HTMLElement} button 開閉ボタン。NG 登録で表示中のコメントが無くなったときのフォーカスの移し先にも使う（focus.js）
  * @property {(state: { open: boolean, countText: string, statusText: string, visible: boolean }) => void} update
  *   表示を更新する。変わった部分だけ書き換える
  * @property {(commentsEl: Element) => void} attach コメント欄の直前の兄弟として差し込む（差し込み済みなら何もしない）
@@ -2082,6 +2193,7 @@ function createCountBar({ doc, onToggle }) {
 
   return {
     element,
+    button,
     update({ open, countText, statusText, visible }) {
       setText(button, open ? 'コメントを隠す' : 'コメントを表示');
       button.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -2999,6 +3111,11 @@ function main() {
   let documentObserver = null;
   /** @type {ReturnType<typeof setTimeout>|null} */
   let scanTimer = null;
+  /**
+   * NG 登録を確定した thread。thread を隠すのは次のスキャンなので、そこでフォーカスを移すために覚えておく
+   * @type {Element|null}
+   */
+  let pendingFocusThread = null;
 
   const lm = createLanguageModelController({
     categories: AI_CATEGORIES,
@@ -3113,6 +3230,8 @@ function main() {
   function scan() {
     scanTimer = null;
     if (!commentsEl || !isTargetPage()) {
+      // コメント欄を離れたら、前の欄の thread へのフォーカスの移し替えを持ち越さない
+      pendingFocusThread = null;
       renderBar();
       return;
     }
@@ -3121,6 +3240,12 @@ function main() {
     const items = processor.processThreads(threads);
     for (const thread of threads) {
       if (thread.getAttribute(STATE_ATTR) === 'shown') ensureBlockButton(findOwnViewModel(thread), doc, onBlockClick);
+    }
+    if (pendingFocusThread) {
+      // NG 登録で thread が隠れると、フォーカスしていたボタンごと消えて body に落ちるので、近くの表示中のコメントへ移す
+      const thread = pendingFocusThread;
+      pendingFocusThread = null;
+      restoreFocusAfterHide({ threads, thread, activeElement: doc.activeElement, doc, fallback: bar.button });
     }
     // 遷移中は入れない。判定中のまま残った thread は、遷移の完了後のスキャンで入れる
     if (items.length > 0 && navigation.canEnqueue()) queue.enqueue(items);
@@ -3242,6 +3367,7 @@ function main() {
     }
     GM_setValue(NG_USERS_VALUE_KEY, next);
     debugLog('NG ユーザに追加', entry);
+    pendingFocusThread = thread;
     processor.setRules(buildRules());
     scheduleScan();
   }
@@ -3278,6 +3404,7 @@ function main() {
     // 別の動画へ移ったときだけ、前の動画の判定を止めてコメント欄を閉じた状態に戻す。
     // 同じ動画の中の遷移（時刻や lc= 付きの URL）では、読んでいる途中の欄を閉じない
     if (navigation.finish(location.href).videoChanged) {
+      pendingFocusThread = null;
       queue.reset();
       doc.documentElement.removeAttribute(OPEN_ATTR);
     }
