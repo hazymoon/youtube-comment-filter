@@ -83,7 +83,11 @@ function makeThread({
     query[fallbackOnly ? CONTENT_TEXT_FALLBACK_SELECTOR : CONTENT_TEXT_SELECTOR] = content;
   }
   if (authorHref !== null) {
-    query[AUTHOR_LINK_SELECTOR] = el({ tag: 'a', id: 'author-text', attrs: badgeHref ? { href: authorHref, hidden: '' } : { href: authorHref } });
+    query[AUTHOR_LINK_SELECTOR] = el({
+      tag: 'a',
+      id: 'author-text',
+      attrs: badgeHref ? { href: authorHref, hidden: '' } : { href: authorHref },
+    });
   }
   if (badgeHref !== null) query[OWNER_BADGE_LINK_SELECTOR] = el({ tag: 'a', id: 'name', attrs: { href: badgeHref } });
   if (lcHref !== null) query[PUBLISHED_TIME_LINK_SELECTOR] = el({ tag: 'a', attrs: { href: lcHref } });
@@ -101,7 +105,10 @@ function makeThread({
   const container = el({ id: 'comment-container', children: noViewModel ? [] : [viewModel] });
   const children = [container];
   if (replies.length > 0) {
-    const repliesRenderer = el({ tag: 'ytd-comment-replies-renderer', children: [el({ id: 'expanded-threads', children: replies })] });
+    const repliesRenderer = el({
+      tag: 'ytd-comment-replies-renderer',
+      children: [el({ id: 'expanded-threads', children: replies })],
+    });
     children.push(el({ id: 'replies', children: [repliesRenderer] }));
   }
   return el({ tag: 'ytd-comment-thread-renderer', children });

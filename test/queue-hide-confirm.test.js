@@ -59,11 +59,15 @@ async function waitForCalls(h, count) {
 
 /** 本文に NG を含むものだけ hide:true と答える。 */
 function answerByText(call) {
-  call.resolve(JSON.stringify(call.payload.map((item) => ({
-    id: item.id,
-    hide: item.text.includes('NG'),
-    category: item.text.includes('NG') ? '暴言' : null,
-  }))));
+  call.resolve(
+    JSON.stringify(
+      call.payload.map((item) => ({
+        id: item.id,
+        hide: item.text.includes('NG'),
+        category: item.text.includes('NG') ? '暴言' : null,
+      })),
+    ),
+  );
 }
 
 function answerAll(call, hide) {
@@ -85,7 +89,11 @@ test('まとめた判定で hide:true のコメントは、1 件ずつ判定し�
 
   await waitForCalls(h, 2);
   assert.deepEqual(h.calls[1].payload, [{ id: 'c0', text: 'NG b' }]);
-  assert.deepEqual(h.verdicts.map(([id]) => id), ['a', 'c'], '隠さない判定は再判定を待たずに流す');
+  assert.deepEqual(
+    h.verdicts.map(([id]) => id),
+    ['a', 'c'],
+    '隠さない判定は再判定を待たずに流す',
+  );
   answerAll(h.calls[1], false);
   await settle();
 
@@ -126,7 +134,14 @@ test('全件が hide:true なら全件を 1 件ずつ判定し直す', async () 
   }
   await settle();
 
-  assert.deepEqual(h.verdicts.map(([id, v]) => [id, v.hide]), [['a', false], ['b', true], ['c', false]]);
+  assert.deepEqual(
+    h.verdicts.map(([id, v]) => [id, v.hide]),
+    [
+      ['a', false],
+      ['b', true],
+      ['c', false],
+    ],
+  );
 });
 
 test('batchSize 1 の判定と、1 件だけのバッチの判定は判定し直さない', async () => {

@@ -27,7 +27,14 @@ function rulesOf(css) {
     .filter((chunk) => chunk.includes('{'))
     .map((chunk) => {
       const [head, body] = chunk.split('{');
-      return { selectors: head.replace(/\/\*[\s\S]*?\*\//g, '').split(',').map((s) => s.trim()).filter(Boolean), body };
+      return {
+        selectors: head
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+        body,
+      };
     });
 }
 
@@ -43,15 +50,22 @@ test('コメント欄のすべての範囲で、キーボードのフォーカ�
 
 test('マウスのクリックによるフォーカスにも当たる :focus-within では NG ボタンを見せない', () => {
   const rules = rulesOf(buildStyles());
-  const focusWithin = rules.flatMap((r) => r.selectors).filter((s) => s.includes(':focus-within') && s.includes(BLOCK_BUTTON_CLASS));
+  const focusWithin = rules
+    .flatMap((r) => r.selectors)
+    .filter((s) => s.includes(':focus-within') && s.includes(BLOCK_BUTTON_CLASS));
   assert.deepEqual(focusWithin, []);
 });
 
 test(':has() を解釈しないブラウザでもホバーの規則が無効にならないよう、フォーカスの規則はホバーと別の規則にする', () => {
   const rules = rulesOf(buildStyles());
-  const focusRules = rules.filter((r) => r.selectors.some((s) => s.includes(':has(') && s.includes(BLOCK_BUTTON_CLASS)));
+  const focusRules = rules.filter((r) =>
+    r.selectors.some((s) => s.includes(':has(') && s.includes(BLOCK_BUTTON_CLASS)),
+  );
   assert.ok(focusRules.length > 0, 'フォーカスで見せる規則がある');
   for (const rule of focusRules) {
-    assert.ok(rule.selectors.every((s) => s.includes(':has(')), rule.selectors.join(',\n'));
+    assert.ok(
+      rule.selectors.every((s) => s.includes(':has(')),
+      rule.selectors.join(',\n'),
+    );
   }
 });

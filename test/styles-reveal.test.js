@@ -31,7 +31,10 @@ test('見せる量を表すカスタムプロパティを、アニメーショ�
 test('ホバーでは待ち時間の後に 4 行ぶんを順に見せ、行ごとのマスクで左から右へ見せる', () => {
   const hover = blockOf(HOVER);
   assert.match(hover, /--ycf-reveal:\s*4/);
-  assert.match(hover, new RegExp(`transition:\\s*--ycf-reveal ${4 * REVEAL_MS_PER_LINE}ms linear ${REVEAL_DELAY_MS}ms`));
+  assert.match(
+    hover,
+    new RegExp(`transition:\\s*--ycf-reveal ${4 * REVEAL_MS_PER_LINE}ms linear ${REVEAL_DELAY_MS}ms`),
+  );
   const mask = /(?:^|\s)mask-image:\s*([^;]+);/.exec(hover);
   assert.ok(mask, 'mask-image がある');
   assert.equal(mask[1].match(/linear-gradient\(to right/g)?.length, 4, '1 行に 1 つずつ');

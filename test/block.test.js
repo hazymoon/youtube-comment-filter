@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import { compileRules } from '../src/rules.js';
 import { createThreadProcessor } from '../src/scanner.js';
 import { appendStoredUser } from '../src/settings.js';
-import { AUTHOR_LINK_SELECTOR, BLOCK_BUTTON_CLASS, CONTENT_TEXT_SELECTOR, HEADER_AUTHOR_SELECTOR, REASON_ATTR, STATE_ATTR } from '../src/selectors.js';
+import {
+  AUTHOR_LINK_SELECTOR,
+  BLOCK_BUTTON_CLASS,
+  CONTENT_TEXT_SELECTOR,
+  HEADER_AUTHOR_SELECTOR,
+  REASON_ATTR,
+  STATE_ATTR,
+} from '../src/selectors.js';
 import { buildStyles } from '../src/styles.js';
 import { ensureBlockButton } from '../src/ui.js';
 import { isBlockButtonInsertion } from '../src/ui.js';
@@ -107,7 +114,8 @@ function makeThread(handle) {
     tagName: 'YTD-COMMENT-VIEW-MODEL',
     children: [],
     data: { commentId: `id-${handle}` },
-    querySelector: (selector) => ({ [CONTENT_TEXT_SELECTOR]: content, [AUTHOR_LINK_SELECTOR]: author })[selector] ?? null,
+    querySelector: (selector) =>
+      ({ [CONTENT_TEXT_SELECTOR]: content, [AUTHOR_LINK_SELECTOR]: author })[selector] ?? null,
   };
   const container = { id: 'comment-container', tagName: 'DIV', children: [viewModel] };
   const thread = {
@@ -157,7 +165,12 @@ test('AI の判定で表示になった thread を onShown に渡す（スキャ
   assert.deepEqual(shown, [], 'AI の判定前は渡さない');
 
   processor.applyVerdict([kept, hidden], 'id-@eve', { hide: false, category: null }, { id: 'id-@eve', text: '本文' });
-  processor.applyVerdict([kept, hidden], 'id-@mallory', { hide: true, category: '暴言' }, { id: 'id-@mallory', text: '本文' });
+  processor.applyVerdict(
+    [kept, hidden],
+    'id-@mallory',
+    { hide: true, category: '暴言' },
+    { id: 'id-@mallory', text: '本文' },
+  );
   assert.equal(kept.getAttribute(STATE_ATTR), 'shown');
   assert.deepEqual(shown, [kept], '隠した thread は渡さない');
 });

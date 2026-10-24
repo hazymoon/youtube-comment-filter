@@ -70,7 +70,10 @@ function makeThread({ href = '/@alice' } = {}) {
     polymerController: { data: {}, __data: { commentEntity: { author } } },
   });
   content.parentElement = viewModel;
-  const thread = el({ tag: 'ytd-comment-thread-renderer', children: [el({ id: 'comment-container', children: [viewModel] })] });
+  const thread = el({
+    tag: 'ytd-comment-thread-renderer',
+    children: [el({ id: 'comment-container', children: [viewModel] })],
+  });
   thread.viewModel = viewModel;
   thread.author = author;
   return thread;

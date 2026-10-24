@@ -5,7 +5,14 @@ import { CONTENT_TEXT_SELECTOR, PUBLISHED_TIME_LINK_SELECTOR } from '../src/sele
 
 /** 3 つの取得元すべてに別の ID を持つ偽の thread を作る。 */
 function makeThread({ dataId, controllerId, lcId }) {
-  const node = (props) => ({ tagName: 'DIV', id: '', children: [], parentElement: null, getAttribute: () => null, ...props });
+  const node = (props) => ({
+    tagName: 'DIV',
+    id: '',
+    children: [],
+    parentElement: null,
+    getAttribute: () => null,
+    ...props,
+  });
   const lcLink = node({ getAttribute: (name) => (name === 'href' ? `/watch?v=v1&lc=${lcId}` : null) });
   const content = node({ textContent: '本文', querySelector: () => null });
   const viewModel = node({
@@ -24,7 +31,10 @@ function makeThread({ dataId, controllerId, lcId }) {
 }
 
 test('コメント ID は .data → polymerController.data → lc= の順に優先する', () => {
-  assert.equal(extractComment(makeThread({ dataId: 'FROM_DATA', controllerId: 'FROM_CTRL', lcId: 'FROM_LC' })).id, 'FROM_DATA');
+  assert.equal(
+    extractComment(makeThread({ dataId: 'FROM_DATA', controllerId: 'FROM_CTRL', lcId: 'FROM_LC' })).id,
+    'FROM_DATA',
+  );
   assert.equal(extractComment(makeThread({ controllerId: 'FROM_CTRL', lcId: 'FROM_LC' })).id, 'FROM_CTRL');
   assert.equal(extractComment(makeThread({ lcId: 'FROM_LC' })).id, 'FROM_LC');
 });
