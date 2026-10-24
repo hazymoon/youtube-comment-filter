@@ -1563,9 +1563,11 @@ function extractComment(threadEl) {
  */
 
 
+
 /**
- * コメントの中でフォーカスを移す要素の代わりの候補。投稿者のリンクが無いときに使う。
- * NG 登録のボタン（button）はホバー中しか表示しない（styles.js）ので、表示されていない要素へ移さないよう a だけにする
+ * コメントの中でフォーカスを移す要素の代わりの候補。投稿者の名前のリンクが無いか、移せなかったときに使う。
+ * NG 登録のボタン（button）もフォーカスできるが、フォーカスが来るまで透明なので（styles.js）、
+ * 移した時点で見えている名前のリンクを優先し、代わりの候補も a に限る
  */
 const FALLBACK_LINK_SELECTOR = 'a[href]';
 
@@ -1580,15 +1582,36 @@ function isVisibleThread(thread) {
 }
 
 /**
- * thread の中でフォーカスを移す要素を返す。投稿者のリンク（AUTHOR_LINK_SELECTOR）を選び、無ければ本体の中の最初のリンクにする。
+ * 要素か、root までの祖先に hidden 属性があるか。
+ * 所有者・認証済みのチャンネルのコメントでは a#author-text に hidden が付き、focus() を呼んでも移らない（docs/dom-structure.md）
+ * @param {any} el 調べる要素
+ * @param {any} root コメント本体。ここより上は調べない
+ * @returns {boolean}
+ */
+function isHiddenWithin(el, root) {
+  for (let node = el; node && node !== root; node = node.parentElement ?? null) {
+    if (node.hidden === true || node.hasAttribute?.('hidden')) return true;
+  }
+  return false;
+}
+
+/**
+ * thread の中でフォーカスを移す要素の候補を、試す順に返す。
+ * 投稿者のリンク（AUTHOR_LINK_SELECTOR）、所有者・認証済みのバッジの名前のリンク（OWNER_BADGE_LINK_SELECTOR）、
+ * 本体の中のリンク（FALLBACK_LINK_SELECTOR。文書順）の順で、重複と hidden の付いたものを除く。
  * 入れ子の返信の要素を選ばないよう、thread の直下のコメント本体（findOwnViewModel）の中だけを探す。
  * @param {any} thread ytd-comment-thread-renderer
- * @returns {any|null} フォーカスできる要素。無ければ null
+ * @returns {any[]}
  */
-function focusableIn(thread) {
+function focusablesIn(thread) {
   const viewModel = findOwnViewModel(thread);
-  const target = viewModel?.querySelector?.(AUTHOR_LINK_SELECTOR) ?? viewModel?.querySelector?.(FALLBACK_LINK_SELECTOR) ?? null;
-  return typeof target?.focus === 'function' ? target : null;
+  if (!viewModel) return [];
+  const found = [
+    viewModel.querySelector?.(AUTHOR_LINK_SELECTOR),
+    viewModel.querySelector?.(OWNER_BADGE_LINK_SELECTOR),
+    ...Array.from(viewModel.querySelectorAll?.(FALLBACK_LINK_SELECTOR) ?? []),
+  ];
+  return [...new Set(found)].filter((el) => typeof el?.focus === 'function' && !isHiddenWithin(el, viewModel));
 }
 
 /**
@@ -1616,50 +1639,75 @@ function isHiddenThread(thread) {
 }
 
 /**
- * NG 登録のボタンが押された thread が隠れたときに、フォーカスを移す先を決める。
+ * @typedef {object} FocusCandidate
+ * @property {any} element フォーカスを移す要素
+ * @property {boolean} preventScroll focus() に渡す preventScroll
+ */
+
+/**
+ * NG 登録のボタンが押された thread が隠れたときの、フォーカスの移し先の候補を試す順に返す。
  *
- * - thread がまだ表示中（ルールに当たらなかったなど）なら移さない
- * - フォーカスが thread の外の要素にあるなら移さない（利用者が移した先を奪わない）
- * - 移す先は threads（文書順。返信も含む）で thread より後ろの、いちばん近い表示中のコメント。
- *   無ければ thread より前の、いちばん近い表示中のコメント。それも無ければ fallback（件数バーのボタン）
+ * - thread がまだ表示中（ルールに当たらなかったなど）なら候補は無い
+ * - フォーカスが thread の外の要素にあるなら候補は無い（利用者が移した先を奪わない）
+ * - 順は threads（文書順。返信も含む）で thread より後ろの表示中のコメント（近い順）、
+ *   thread より前の表示中のコメント（近い順）、fallback（件数バーのボタン）。各コメントの中は focusablesIn の順
  * - 同じスキャンで隠れた同じ投稿者のコメントや、隠した thread の中の返信は表示中ではないので飛ばす
- * - thread が DOM から外れて threads に無いときは、前後が分からないので fallback にする
+ * - thread が DOM から外れて threads に無いときは、前後が分からないので fallback だけにする
  *   （件数バーはコメント欄の直前にあるので、次の Tab で先頭のコメントへ進める）
+ * - 前のコメントと fallback は preventScroll にする。画面の上の外にあることが多く、移すたびにページが上へ戻ると、
+ *   マウスで押した人の読んでいる位置が変わるため。後ろのコメントは隠れたコメントのすぐ下にあり、
+ *   画面の外にあるときはキーボードで操作している人に見せるため、既定のスクロールのままにする
+ * @param {Parameters<typeof pickFocusTarget>[0]} options pickFocusTarget と同じ
+ * @returns {Generator<FocusCandidate>}
+ */
+function* focusCandidates({ threads, thread, activeElement, doc, fallback = null }) {
+  if (!thread) return;
+  if (thread.isConnected !== false && !isHiddenThread(thread)) return;
+  if (!isFocusLost(thread, activeElement, doc)) return;
+  const index = threads.indexOf(thread);
+  if (index !== -1) {
+    for (const [ordered, preventScroll] of [
+      [threads.slice(index + 1), false],
+      [threads.slice(0, index).reverse(), true],
+    ]) {
+      for (const candidate of ordered) {
+        if (!isVisibleThread(candidate)) continue;
+        for (const element of focusablesIn(candidate)) yield { element, preventScroll };
+      }
+    }
+  }
+  if (typeof fallback?.focus === 'function') yield { element: fallback, preventScroll: true };
+}
+
+/**
+ * NG 登録のボタンが押された thread が隠れたときに、フォーカスを最初に試す移し先を返す（focusCandidates の先頭）。
+ * 実際に移せるかは focus() を呼ぶまで分からないので、移すときは restoreFocusAfterHide を使う。
  * @param {object} options
  * @param {any[]} options.threads コメント欄の thread（文書順）
  * @param {any} options.thread NG 登録のボタンが押された thread
  * @param {any} options.activeElement document.activeElement
- * @param {any} options.doc document（body との比較に使う）
- * @param {any} [options.fallback] 表示中のコメントが無いときの移し先
+ * @param {any} options.doc document（body との比較と、移せたかの確認に使う）
+ * @param {any} [options.fallback] 表示中のコメントへ移せないときの移し先
  * @returns {any|null} フォーカスを移す要素。移さないときは null
  */
-function pickFocusTarget({ threads, thread, activeElement, doc, fallback = null }) {
-  if (!thread) return null;
-  if (thread.isConnected !== false && !isHiddenThread(thread)) return null;
-  if (!isFocusLost(thread, activeElement, doc)) return null;
-  const index = threads.indexOf(thread);
-  if (index !== -1) {
-    const ordered = [...threads.slice(index + 1), ...threads.slice(0, index).reverse()];
-    for (const candidate of ordered) {
-      if (!isVisibleThread(candidate)) continue;
-      const target = focusableIn(candidate);
-      if (target) return target;
-    }
-  }
-  return typeof fallback?.focus === 'function' ? fallback : null;
+function pickFocusTarget(options) {
+  return focusCandidates(options).next().value?.element ?? null;
 }
 
 /**
- * pickFocusTarget の結果へフォーカスを移す。
- * focus() は既定のスクロールのまま呼ぶ。ブラウザは移した要素が画面の外にあるときだけスクロールするので、
- * キーボードで操作している人には移した先が見え、マウスで押した人には、隣のコメントへ移すだけでページは動かない。
+ * focusCandidates の順にフォーカスを移す。
+ * focus() の後に doc.activeElement がその要素になったかを確かめ、なっていなければ次の候補を試す。
+ * hidden 属性は focusablesIn で除くが、描画されていない要素などはここで飛ばす。
+ * スクロールは候補ごとに focusCandidates が決めた preventScroll に従う。
  * @param {Parameters<typeof pickFocusTarget>[0]} options pickFocusTarget と同じ
- * @returns {any|null} フォーカスを移した要素。移さなかったときは null
+ * @returns {any|null} フォーカスを移した要素。どこにも移せなかったときと、移さないときは null
  */
 function restoreFocusAfterHide(options) {
-  const target = pickFocusTarget(options);
-  target?.focus();
-  return target;
+  for (const { element, preventScroll } of focusCandidates(options)) {
+    element.focus({ preventScroll });
+    if (options.doc?.activeElement === element) return element;
+  }
+  return null;
 }
 
 // ---- decide.js ----
