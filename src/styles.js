@@ -141,11 +141,29 @@ export function buildStyles() {
     ),
   );
   const hiddenThread = forEachScope((thread) => [`${thread}[${STATE_ATTR}="hidden"]`]);
-  // NG 登録のボタンは、判定から外したもの以外の表示中のコメントにホバーしたときだけ見せる。
-  // 直下結合子で書き、返信にホバーしたときに親のボタンが出ないようにする
-  const blockButtonShown = forEachScope((thread) => [
-    `${thread}[${STATE_ATTR}="shown"]:not([${REASON_ATTR}="exempt"]) > #${COMMENT_CONTAINER_ID} ${VIEW_MODEL_TAG}:hover .${BLOCK_BUTTON_CLASS}`,
-  ]);
+  // NG 登録のボタンは、判定から外したもの以外の表示中のコメントにホバーしたとき、またはコメント内に
+  // キーボードのフォーカスがあるときだけ見せる。:focus-within だとマウスのクリックで残ったフォーカスにも当たり、
+  // クリック後にボタンが出たままになるので、:has(:focus-visible) を使う。
+  // 見せないときも display:none にはせず、透明にしてマウスで押せなくするだけにする。Chrome はフォーカスを移すとき
+  // 先に元の要素（ボタンの前にある投稿時刻のリンクなど）からフォーカスを外すので、その瞬間に :has(:focus-visible) が
+  // 外れる。ボタンが display:none に戻るとフォーカスできない要素になり、タブでの移動が取りやめになる。
+  // ボタン自身の :focus-visible でも見せ、フォーカスが移った瞬間から見えるようにする。
+  // 直下結合子で書き、返信にホバー・フォーカスしたときに親のボタンが出ないようにする
+  const blockButtonOf = (thread, pseudo) =>
+    `${thread}[${STATE_ATTR}="shown"]:not([${REASON_ATTR}="exempt"]) > #${COMMENT_CONTAINER_ID} ${VIEW_MODEL_TAG}${pseudo} .${BLOCK_BUTTON_CLASS}`;
+  const blockButtonHover = forEachScope((thread) => [blockButtonOf(thread, ':hover')]);
+  const blockButtonSelfFocus = forEachScope((thread) => [`${blockButtonOf(thread, '')}:focus-visible`]);
+  // 既定の規則がボタンをタブの順序に残すので、押せないコメントのボタンは display:none にしてタブでも移れないようにする。
+  // :has() を解釈しないブラウザでも当たるよう、:has() を使わずに書く
+  const blockButtonUnusable = forEachScope((thread) =>
+    [`[${STATE_ATTR}="shown"][${REASON_ATTR}="exempt"]`, `:not([${STATE_ATTR}="shown"])`].map(
+      (cond) => `${thread}${cond} > #${COMMENT_CONTAINER_ID} .${BLOCK_BUTTON_CLASS}`,
+    ),
+  );
+  // :has() を解釈しないブラウザでは、:has() を含むセレクタリストの規則全体が捨てられる。
+  // ホバーの規則を巻き込まないよう別の規則にする。:is(:hover, :has(...)) にまとめる形は、:is() の中の
+  // 無効なセレクタを読み飛ばすかどうかがブラウザの実装時期で揺れたため採らない
+  const blockButtonFocus = forEachScope((thread) => [blockButtonOf(thread, ':has(:focus-visible)')]);
 
   const contentOf = (container) => `${container} ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
   const hoverOf = (container) => `${container} ${VIEW_MODEL_TAG}:hover ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
@@ -296,9 +314,11 @@ ${shownButtons} {
   display: none !important;
 }
 
-/* NG 登録のボタン */
+/* NG 登録のボタン。タブで移れるよう display:none にせず、透明にしてマウスで押せなくする */
 .${BLOCK_BUTTON_CLASS} {
-  display: none !important;
+  display: inline-block !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
   margin-left: 8px;
   padding: 0 6px;
   border: 1px solid currentColor;
@@ -313,8 +333,24 @@ ${shownButtons} {
 html[dark] .${BLOCK_BUTTON_CLASS} {
   color: ${barColor('subtext', 'dark')};
 }
-${blockButtonShown} {
+${blockButtonHover} {
   display: inline-block !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+${blockButtonFocus} {
+  display: inline-block !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+${blockButtonSelfFocus} {
+  display: inline-block !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+/* 判定から外したコメント・表示中でないコメントのボタンはタブでも移れないようにする */
+${blockButtonUnusable} {
+  display: none !important;
 }
 
 /* 件数バー */
