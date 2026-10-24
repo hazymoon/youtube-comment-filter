@@ -76,6 +76,12 @@ Violentmonkey にローカルの `dist/youtube-comment-filter.user.js` を追跡
 同じ名前のスクリプトとして入るので、Release から入れたものと入れ替わります。確かめ終わったら、[インストール](#インストール)の URL から入れ直して戻します。
 worktree で作業しているときは、確かめたい worktree の `dist/` を開きます。
 
+`git switch` などでブランチを切り替えると、追跡が止まります。git はファイルの中身を書き換えるのではなく、ファイルを作り直すため、追跡は消えた古いファイルを見たままになります（`npm run build` は同じファイルに書き込むので止まりません）。複数のブランチを切り替えて確かめるときは、git の管理外の場所に置いたファイルを追跡させ、切り替えるたびに中身だけを上書きします。
+
+```sh
+cat dist/youtube-comment-filter.user.js > <追跡させたファイルの絶対パス>
+```
+
 ### リリース
 
 1. `scripts/build.mjs` の `@version` を上げ、`npm run build` してコミットする
