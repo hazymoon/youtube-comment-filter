@@ -66,7 +66,11 @@ export const PINNED_BADGE_SELECTOR = '#pinned-comment-badge ytw-pinned-comment-b
 /** 投稿日時のリンク（href に lc=<commentId>）。確認済み（同上） */
 export const PUBLISHED_TIME_LINK_SELECTOR = '#published-time-text a';
 
-/** 本文。属性としては見えないが querySelector で取れる。確認済み（同上） */
+/**
+ * 本文の要素。属性としては見えないが querySelector で取れる。確認済み（同上）。
+ * 本文の文字列は polymer のデータの原文を優先し、この要素の textContent はそれが無いときに使う（dom.js の readBodyText）。
+ * 先頭の @メンションのリンクはこの要素から読む
+ */
 export const CONTENT_TEXT_SELECTOR = '#content-text';
 
 /** 本文の代わりの取得先。確認済み（同上） */

@@ -60,7 +60,7 @@ div#body
   └ ytd-comment-engagement-bar#action-buttons    … 高評価・返信ボタン
 ```
 
-- 本文の `id="content-text"` は属性として骨格ダンプに出なかったが、`querySelector('#content-text')` では取れた（spike v0.2.0 の `contentTextFound: true`、v0.3.0 の @返信の判定）。DOM 層は `#content-text` を第一に使い、取れないときは `#expander yt-attributed-string[slot="content"]` を使う
+- 本文の `id="content-text"` は属性として骨格ダンプに出なかったが、`querySelector('#content-text')` では取れた（spike v0.2.0 の `contentTextFound: true`、v0.3.0 の @返信の判定）。DOM 層は本文の要素として `#content-text` を第一に使い、取れないときは `#expander yt-attributed-string[slot="content"]` を使う。本文の文字列は「データ」の polymer の原文を優先し、要素の textContent はそれが読めないときに使う（翻訳で中身が訳文に差し替わるため）
 - YouTube 自身の折りたたみは `ytd-expander#expander > #content` の 4 行で、溢れたときに `#more` が出る。段階表示はこの `#content` の行数を上書きし、`#more` / `#less` を隠して置き換える
 - @返信の宛先リンクは本文の先頭の `a.ytAttributedStringLink` で、href は `/channel/UC…` だった
 
@@ -87,8 +87,10 @@ div#main > div#header
 | 表示名 | `.polymerController.__data.commentEntity.author.displayName`（判定には使わない） |
 | 投稿者が動画のチャンネル所有者か | `.polymerController.__data.commentEntity.author.isCreator`（boolean） |
 | 投稿者が認証済みのチャンネルか | `.polymerController.__data.commentEntity.author.isVerified`（boolean） |
+| 本文（原文） | `.polymerController.__data.commentEntity.properties.content.content`（文字列）。読めなければ `#content-text` の textContent |
 
 - 2026-10-23 に 2 本の動画で確認した。所有者のコメントは `isCreator: true` だった。所有者ではない認証済みのチャンネル 4 件は、`isCreator: false`・`isVerified: true` で、所有者と同じ `span#author-comment-badge` のバッジ（`a#name`）が付いていた。所有者かどうかはバッジでは見分けられない
+- 2026-10-24 に、英語のコメントの「日本語に翻訳」を押して確認した（Chrome + Violentmonkey）。翻訳すると `#content-text` の中身が訳文に差し替わるが、`commentEntity.properties.content.content` と `.polymerController.__data.contentText.content` は原文のままで、訳文は `commentEntity.translatedContent.content` に入った。「原文を見る」を押すと `#content-text` は原文に戻った。原文の文字列と、翻訳していないときの `#content-text` の textContent が一致するか（画像の絵文字・改行・リンク）は確かめていない
 
 ## Shorts のコメント欄
 

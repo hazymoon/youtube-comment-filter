@@ -1228,7 +1228,11 @@ const PINNED_BADGE_SELECTOR = '#pinned-comment-badge ytw-pinned-comment-badge-re
 /** 投稿日時のリンク（href に lc=<commentId>）。確認済み（同上） */
 const PUBLISHED_TIME_LINK_SELECTOR = '#published-time-text a';
 
-/** 本文。属性としては見えないが querySelector で取れる。確認済み（同上） */
+/**
+ * 本文の要素。属性としては見えないが querySelector で取れる。確認済み（同上）。
+ * 本文の文字列は polymer のデータの原文を優先し、この要素の textContent はそれが無いときに使う（dom.js の readBodyText）。
+ * 先頭の @メンションのリンクはこの要素から読む
+ */
 const CONTENT_TEXT_SELECTOR = '#content-text';
 
 /** 本文の代わりの取得先。確認済み（同上） */
@@ -1497,9 +1501,25 @@ function readLeadingMentionHref(contentEl, rawText) {
 }
 
 /**
+ * 本文の文字列を返す。polymer のデータの原文（commentEntity.properties.content.content）が文字列ならそれを使い、
+ * 無ければ本文の要素の textContent を使う。
+ * 「日本語に翻訳」を押すと本文の要素の中身は訳文に差し替わるが、原文のデータは翻訳中も変わらない
+ * （訳文は commentEntity.translatedContent.content に入る。docs/dom-structure.md「データ」）。
+ * 表示中の文字列から読むと、翻訳・原文に戻すたびにハッシュが変わり、判定前に戻って AI に送り直すことになる。
+ * そのため訳文に含まれる NG ワードは照合しない。判定の対象は投稿者が書いた原文なので、これを受け入れる。
+ * @param {any} viewModel ytd-comment-view-model
+ * @param {any} contentEl 本文の要素
+ * @returns {string}
+ */
+function readBodyText(viewModel, contentEl) {
+  const original = viewModel?.polymerController?.__data?.commentEntity?.properties?.content?.content;
+  return typeof original === 'string' ? original : String(contentEl.textContent ?? '');
+}
+
+/**
  * @typedef {object} ExtractedComment
  * @property {string} id コメント ID
- * @property {string} text 本文（前後の空白を除く）。画像の絵文字だけの本文などは空文字
+ * @property {string} text 本文（前後の空白を除く。readBodyText）。本文の要素から読んだときは、画像の絵文字だけの本文などは空文字
  * @property {string} textHash 本文のハッシュ（hashString）
  * @property {{ handle: string|null, channelId: string|null, isOwner: boolean, isVerified: boolean }} author 投稿者。
  *   isOwner は動画のチャンネル所有者か、isVerified は認証バッジ付きのチャンネルか
@@ -1523,8 +1543,9 @@ function extractComment(threadEl) {
   const id = readCommentId(viewModel);
   if (!id) return { unreadable: 'コメント ID が取れません' };
 
+  // 先頭の @メンションの判定は本文の要素の中のリンクと比べるので、同じ要素の textContent を使う
   const rawText = String(contentEl.textContent ?? '');
-  const text = rawText.trim();
+  const text = readBodyText(viewModel, contentEl).trim();
   const authorData = viewModel.polymerController?.__data?.commentEntity?.author;
   const isReply = hasAncestor(threadEl, REPLIES_RENDERER_TAG);
   return {
