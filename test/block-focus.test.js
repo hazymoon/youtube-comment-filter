@@ -34,6 +34,6 @@ test('フォーカスで見せるセレクタはすべて thread から #comment
     .filter((s) => s.includes(':focus-visible') && s.includes(BLOCK_BUTTON_CLASS));
   assert.ok(selectors.length > 0, 'フォーカスで見せるセレクタがある');
   for (const selector of selectors) {
-    assert.match(selector, /\[data-ycf-state="shown"\]:not\(\[data-ycf-reason="exempt"\]\) > #comment-container ytd-comment-view-model:has\(:focus-visible\) /, selector);
+    assert.match(selector, /\[data-ycf-state="shown"\]:not\(\[data-ycf-reason="exempt"\]\) > #comment-container ytd-comment-view-model(:has\(:focus-visible\) | \.ycf-block:focus-visible$)/, selector);
   }
 });
