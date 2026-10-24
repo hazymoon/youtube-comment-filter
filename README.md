@@ -65,6 +65,17 @@ npm run build
 
 `src/` を編集したら `npm run build` で `dist/` を作り直してコミットします（CI が作り直し忘れを検出します）。
 
+### 手元の dist を実機で確かめる
+
+Violentmonkey にローカルの `dist/youtube-comment-filter.user.js` を追跡させると、`npm run build` で作り直すたびに自動で読み込み直します。コードを貼り付けて入れ替える必要はありません。
+
+1. `chrome://extensions` → Violentmonkey の「詳細」で「ファイルの URL へのアクセスを許可する」をオンにする
+2. `file:///<リポジトリの絶対パス>/dist/youtube-comment-filter.user.js` を Chrome で開き、インストール画面で、ローカルのファイルを追跡するチェックを入れてインストールする
+3. インストール画面のタブは開いたままにする（閉じると追跡が止まる）
+
+同じ名前のスクリプトとして入るので、Release から入れたものと入れ替わります。確かめ終わったら、[インストール](#インストール)の URL から入れ直して戻します。
+worktree で作業しているときは、確かめたい worktree の `dist/` を開きます。
+
 ### リリース
 
 1. `scripts/build.mjs` の `@version` を上げ、`npm run build` してコミットする
