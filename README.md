@@ -90,6 +90,8 @@ worktree で作業しているときは、確かめたい worktree の `dist/` �
 1. `feat:` や `fix:` のコミットが main に入ると、release-please がリリース PR を作り、以降のマージのたびに更新する
 2. リリース PR をマージすると、タグと Release が作られ、`dist/youtube-comment-filter.user.js` が添付される
 
+Release を作ったあとのビルドや添付が失敗すると、添付の無い Release が最新になり、インストール URL が 404 になります。ワークフローを再実行しても Release は作成済みとみなされて添付は行われないので、タグを checkout して `npm run build` し、`gh release upload <タグ> dist/youtube-comment-filter.user.js` で手で添付します。
+
 バージョンは Conventional Commits から決まります（0.x のあいだは `feat:` と破壊的変更で minor、`fix:` で patch が上がります）。`@version` は `package.json` の `version` から作るので、手で書き換えません。変更履歴は [CHANGELOG.md](CHANGELOG.md) にあります。
 
 ## ライセンス
