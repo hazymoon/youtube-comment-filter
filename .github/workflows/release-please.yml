@@ -17,7 +17,12 @@ jobs:
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-      - uses: googleapis/release-please-action@v5
+          # release-please がブランチ・PR・ラベルを作るのに要る分だけに絞る
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+      # 書き込みのトークンを渡すサードパーティのアクションなので、タグの付け替えで中身が変わらないよう SHA で固定する
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:
           token: ${{ steps.app-token.outputs.token }}
