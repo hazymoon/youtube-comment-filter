@@ -88,9 +88,9 @@ worktree で作業しているときは、確かめたい worktree の `dist/` �
 [release-please](https://github.com/googleapis/release-please) がリリースを自動で準備します。
 
 1. `feat:` や `fix:` のコミットが main に入ると、release-please がリリース PR を作り、以降のマージのたびに更新する
-2. リリース PR をマージすると、タグと Release が作られ、`dist/youtube-comment-filter.user.js` が添付される
+2. リリース PR をマージすると、タグと下書きの Release が作られ、`dist/youtube-comment-filter.user.js` を添付してから公開される
 
-Release を作ったあとのビルドや添付が失敗すると、添付の無い Release が最新になり、インストール URL が 404 になります。ワークフローを再実行しても Release は作成済みとみなされて添付は行われないので、タグを checkout して `npm run build` し、`gh release upload <タグ> dist/youtube-comment-filter.user.js` で手で添付します。
+下書きのうちは最新の Release にならないので、ビルドや添付が失敗してもインストール URL は前のリリースを指したままです。ワークフローを再実行しても Release は作成済みとみなされて添付は行われないので、タグを checkout して `npm run build` し、`gh release upload <タグ> dist/youtube-comment-filter.user.js` で添付してから `gh release edit <タグ> --draft=false` で公開します。
 
 バージョンは Conventional Commits から決まります（0.x のあいだは `feat:` と破壊的変更で minor、`fix:` で patch が上がります）。`@version` は `package.json` の `version` から作るので、手で書き換えません。変更履歴は [CHANGELOG.md](CHANGELOG.md) にあります。
 

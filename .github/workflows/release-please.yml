@@ -28,7 +28,8 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 
       # 以降はリリース PR がマージされて Release が作られたときだけ動く。
-      # README のインストール URL は最新の Release の添付ファイルを指すので、作った Release に dist を添付する
+      # README のインストール URL は最新の Release の添付ファイルを指す。添付の無い Release が最新にならないよう、
+      # release-please には下書きで作らせ、dist を添付してから公開する（下書きは最新の対象にならない）
       - uses: actions/checkout@v7
         if: ${{ steps.release.outputs.release_created }}
         with:
@@ -58,3 +59,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ steps.release.outputs.tag_name }}
         run: gh release upload "${TAG_NAME}" dist/youtube-comment-filter.user.js
+      - name: Release を公開する
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
+        run: gh release edit "${TAG_NAME}" --draft=false
