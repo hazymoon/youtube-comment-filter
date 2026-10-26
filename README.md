@@ -67,7 +67,7 @@ npm run fmt
 npm run build
 ```
 
-`src/` を編集したら `npm run build` で `dist/` を作り直してコミットします（CI が作り直し忘れを検出します）。
+`npm run build` で `src/` を結合して `dist/` に書き出します。`dist/` はコミットせず、リリースのときに作って Release に添付します。
 `npm run lint`（oxlint）と、`npm run fmt`（oxfmt）で整形した結果も CI が確かめます。整形だけを確かめるときは `npm run fmt:check` を使います。
 
 ### 手元の dist を実機で確かめる
@@ -81,19 +81,18 @@ Violentmonkey にローカルの `dist/youtube-comment-filter.user.js` を追跡
 同じ名前のスクリプトとして入るので、Release から入れたものと入れ替わります。確かめ終わったら、[インストール](#インストール)の URL から入れ直して戻します。
 worktree で作業しているときは、確かめたい worktree の `dist/` を開きます。
 
-`git switch` などでブランチを切り替えると、追跡が止まります。git はファイルの中身を書き換えるのではなく、ファイルを作り直すため、追跡は消えた古いファイルを見たままになります（`npm run build` は同じファイルに書き込むので止まりません）。複数のブランチを切り替えて確かめるときは、git の管理外の場所に置いたファイルを追跡させ、切り替えるたびに中身だけを上書きします。
-
-```sh
-cat dist/youtube-comment-filter.user.js > <追跡させたファイルの絶対パス>
-```
+`dist/` は git の管理外なので、`git switch` などでブランチを切り替えても中身は前のブランチでビルドしたままです。切り替えたら `npm run build` で作り直します（同じファイルに書き込むので追跡は止まりません）。
 
 ### リリース
 
-1. `scripts/build.mjs` の `@version` を上げ、`npm run build` してコミットする
-2. 同じバージョンのタグ（例: `v0.1.0`）を push する
+[release-please](https://github.com/googleapis/release-please) がリリースを自動で準備します。
 
-タグの push で GitHub Actions が Release を作り、`dist/youtube-comment-filter.user.js` を添付します。
-タグと `@version` が食い違うと Release は作られません。
+1. `feat:` や `fix:` のコミットが main に入ると、release-please がリリース PR を作り、以降のマージのたびに更新する
+2. リリース PR をマージすると、タグと下書きの Release が作られ、`dist/youtube-comment-filter.user.js` を添付してから公開される
+
+下書きのうちは最新の Release にならないので、ビルドや添付が失敗してもインストール URL は前のリリースを指したままです。ワークフローを再実行しても Release は作成済みとみなされて添付は行われないので、タグを checkout して `npm run build` し、`gh release upload <タグ> dist/youtube-comment-filter.user.js` で添付してから `gh release edit <タグ> --draft=false` で公開します。
+
+バージョンは Conventional Commits から決まります（0.x のあいだは `feat:` と破壊的変更で minor、`fix:` で patch が上がります）。`@version` は `package.json` の `version` から作るので、手で書き換えません。変更履歴は [CHANGELOG.md](CHANGELOG.md) にあります。
 
 ## ライセンス
 
