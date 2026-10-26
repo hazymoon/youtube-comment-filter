@@ -1551,7 +1551,9 @@ function removeCustomEmojiNames(original, runs) {
   const ranges = runs
     .filter((run) => run?.element?.type?.imageType)
     .map((run) => ({ start: run.startIndex, end: run.startIndex + run.length }))
-    .filter(({ start, end }) => Number.isInteger(start) && Number.isInteger(end) && start >= 0 && end <= original.length)
+    .filter(
+      ({ start, end }) => Number.isInteger(start) && Number.isInteger(end) && start >= 0 && end <= original.length,
+    )
     .filter(({ start, end }) => CUSTOM_EMOJI_NAME.test(original.slice(start, end)))
     // 後ろから取り除き、前の範囲の位置がずれないようにする
     .sort((a, b) => b.start - a.start);
@@ -1581,7 +1583,8 @@ function removeCustomEmojiNames(original, runs) {
  */
 function readBodyText(viewModel, contentEl) {
   const content = viewModel?.polymerController?.__data?.commentEntity?.properties?.content;
-  const text = typeof content?.content === 'string' ? removeCustomEmojiNames(content.content, content.attachmentRuns) : '';
+  const text =
+    typeof content?.content === 'string' ? removeCustomEmojiNames(content.content, content.attachmentRuns) : '';
   return text.trim() !== '' ? text : String(contentEl.textContent ?? '');
 }
 

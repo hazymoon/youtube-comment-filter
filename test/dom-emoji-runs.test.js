@@ -35,7 +35,11 @@ function el({ tag = 'div', id = '', attrs = {}, text = '', children = [], query 
  * @param {number} length
  */
 function imageRun(startIndex, length) {
-  return { startIndex, length, element: { type: { imageType: { image: { sources: [{ url: 'https://example.invalid/e.png' }] } } } } };
+  return {
+    startIndex,
+    length,
+    element: { type: { imageType: { image: { sources: [{ url: 'https://example.invalid/e.png' }] } } } },
+  };
 }
 
 /**
@@ -73,7 +77,9 @@ test('画像として描かれるカスタム絵文字の名前は取り除く',
 });
 
 test('投稿者が手で打った :名前: は、画像の範囲でなければ取り除かない（NG ワードのすり抜けを防ぐ）', () => {
-  const extracted = extractComment(makeThread({ domText: 'free :scam: here', polymerText: 'free :scam: here', runs: [] }));
+  const extracted = extractComment(
+    makeThread({ domText: 'free :scam: here', polymerText: 'free :scam: here', runs: [] }),
+  );
   assert.equal(extracted.text, 'free :scam: here');
 });
 

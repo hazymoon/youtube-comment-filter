@@ -58,7 +58,10 @@ function makeThread(original) {
     },
   });
   content.parentElement = viewModel;
-  const thread = el({ tag: 'ytd-comment-thread-renderer', children: [el({ id: 'comment-container', children: [viewModel] })] });
+  const thread = el({
+    tag: 'ytd-comment-thread-renderer',
+    children: [el({ id: 'comment-container', children: [viewModel] })],
+  });
   thread.content = content;
   return thread;
 }
