@@ -67,32 +67,33 @@ npm run fmt
 npm run build
 ```
 
-`npm run build` で `src/` を結合して `dist/` に書き出します。`dist/` はコミットせず、リリースのときに作って Release に添付します。
-`npm run lint`（oxlint）と、`npm run fmt`（oxfmt）で整形した結果も CI が確かめます。整形だけを確かめるときは `npm run fmt:check` を使います。
+`npm run build` は `src/` を結合して `dist/youtube-comment-filter.user.js` に書き出します。`dist/` はコミットしません。
+CI は lint・整形（`npm run fmt:check`）・テスト・ビルドを確かめます。
 
 ### 手元の dist を実機で確かめる
 
-Violentmonkey にローカルの `dist/youtube-comment-filter.user.js` を追跡させると、`npm run build` で作り直すたびに自動で読み込み直します。コードを貼り付けて入れ替える必要はありません。
+Violentmonkey にローカルの dist を追跡させると、`npm run build` のたびに読み込み直します。
 
 1. `chrome://extensions` → Violentmonkey の「詳細」で「ファイルの URL へのアクセスを許可する」をオンにする
-2. `file:///<リポジトリの絶対パス>/dist/youtube-comment-filter.user.js` を Chrome で開き、インストール画面で、ローカルのファイルを追跡するチェックを入れてインストールする
+2. `file:///<リポジトリの絶対パス>/dist/youtube-comment-filter.user.js` を開き、ローカルのファイルを追跡するチェックを入れてインストールする（worktree なら、その worktree の `dist/` を開く）
 3. インストール画面のタブは開いたままにする（閉じると追跡が止まる）
 
-同じ名前のスクリプトとして入るので、Release から入れたものと入れ替わります。確かめ終わったら、[インストール](#インストール)の URL から入れ直して戻します。
-worktree で作業しているときは、確かめたい worktree の `dist/` を開きます。
-
-`dist/` は git の管理外なので、`git switch` などでブランチを切り替えても中身は前のブランチでビルドしたままです。切り替えたら `npm run build` で作り直します（同じファイルに書き込むので追跡は止まりません）。
+Release から入れたものと入れ替わるので、確かめ終わったら[インストール](#インストール)の URL から入れ直します。
+ブランチを切り替えたら、`npm run build` で作り直します。
 
 ### リリース
 
-[release-please](https://github.com/googleapis/release-please) がリリースを自動で準備します。
+[release-please](https://github.com/googleapis/release-please) が、main に入った `feat:` / `fix:` からリリース PR を作ります。
+リリース PR をマージすると、バージョン・[CHANGELOG.md](CHANGELOG.md)・タグが更新され、dist を添付した Release が公開されます。
 
-1. `feat:` や `fix:` のコミットが main に入ると、release-please がリリース PR を作り、以降のマージのたびに更新する
-2. リリース PR をマージすると、タグと下書きの Release が作られ、`dist/youtube-comment-filter.user.js` を添付してから公開される
+Release は下書きで作り、添付が済んでから公開するので、途中で失敗してもインストール URL は前のリリースを指したままです。
+下書きのまま残ったときは、ワークフローを再実行しても添付されないので、タグを checkout して手で添付・公開します。
 
-下書きのうちは最新の Release にならないので、ビルドや添付が失敗してもインストール URL は前のリリースを指したままです。ワークフローを再実行しても Release は作成済みとみなされて添付は行われないので、タグを checkout して `npm run build` し、`gh release upload <タグ> dist/youtube-comment-filter.user.js` で添付してから `gh release edit <タグ> --draft=false` で公開します。
-
-バージョンは Conventional Commits から決まります（0.x のあいだは `feat:` と破壊的変更で minor、`fix:` で patch が上がります）。`@version` は `package.json` の `version` から作るので、手で書き換えません。変更履歴は [CHANGELOG.md](CHANGELOG.md) にあります。
+```sh
+npm run build
+gh release upload <タグ> dist/youtube-comment-filter.user.js
+gh release edit <タグ> --draft=false
+```
 
 ## ライセンス
 
