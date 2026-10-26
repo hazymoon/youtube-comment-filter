@@ -53,11 +53,14 @@ export const MODULE_ORDER = [
   'main.js',
 ];
 
+// release-please がリリース PR で上げるのは package.json の version なので、@version はそこから読む
+const PACKAGE_VERSION = JSON.parse(readFileSync(join(ROOT_DIR, 'package.json'), 'utf8')).version;
+
 /** ユーザスクリプトのメタデータ */
 export const USERSCRIPT_META = [
   ['name', 'YouTube Comment Filter'],
   ['namespace', 'https://github.com/hazymoon/youtube-comment-filter'],
-  ['version', '0.4.0'],
+  ['version', PACKAGE_VERSION],
   [
     'description',
     'YouTube のコメント欄を、NG ユーザ・NG ワードと端末内の AI（Chrome の Prompt API）の判定で絞り込みます',

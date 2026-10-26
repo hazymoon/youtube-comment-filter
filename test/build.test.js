@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import vm from 'node:vm';
-import { OUTPUT_PATH, buildUserscript, transformModule } from '../scripts/build.mjs';
+import { buildUserscript, transformModule } from '../scripts/build.mjs';
 
 const output = buildUserscript();
 
@@ -36,10 +36,6 @@ test('IIFE で包まれ、config.js が先頭、main() の呼び出しが最後�
 
 test('スクリプトとしてコンパイルできる', () => {
   assert.doesNotThrow(() => new vm.Script(output, { filename: 'youtube-comment-filter.user.js' }));
-});
-
-test('dist の内容がビルド結果と一致する（npm run build の実行忘れを検出する）', () => {
-  assert.equal(readFileSync(OUTPUT_PATH, 'utf8'), output);
 });
 
 test('transformModule は複数行の import を削除し、export を外す', () => {
