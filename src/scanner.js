@@ -125,7 +125,8 @@ export function createThreadProcessor({
    */
   function logAiHidden(category, text) {
     const chars = [...text];
-    const excerpt = chars.length > AI_HIDDEN_EXCERPT_CHARS ? `${chars.slice(0, AI_HIDDEN_EXCERPT_CHARS).join('')}…` : text;
+    const excerpt =
+      chars.length > AI_HIDDEN_EXCERPT_CHARS ? `${chars.slice(0, AI_HIDDEN_EXCERPT_CHARS).join('')}…` : text;
     debugLog('AI が隠したコメント', category, excerpt);
   }
 

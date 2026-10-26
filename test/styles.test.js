@@ -34,7 +34,10 @@ test('属性なしと pending の thread は、直下の #comment-container を�
   assert.match(band, /content:\s*"判定中…"/);
   // 閉じた欄の中で帯だけが浮き出ないよう、visible は欄を開いているときの規則にだけ書く
   assert.doesNotMatch(band, /visibility:\s*visible/);
-  assert.match(blockOf(`html[data-ycf-open] ${T}[data-ycf-state="pending"] > #comment-container::before`), /visibility:\s*visible/);
+  assert.match(
+    blockOf(`html[data-ycf-open] ${T}[data-ycf-state="pending"] > #comment-container::before`),
+    /visibility:\s*visible/,
+  );
   assert.match(blockOf(`${T}[data-ycf-state="pending"] > #replies`), /display:\s*none/);
 });
 
@@ -46,14 +49,18 @@ test('shown の本文は既定もホバーも 4 行の箱・全文固定で解�
   const content = `${T}[data-ycf-state="shown"] > #comment-container ytd-expander#expander > #content`;
   assert.match(blockOf(`${content} {`), /-webkit-line-clamp:\s*4/);
   assert.match(
-    blockOf(`${T}[data-ycf-state="shown"] > #comment-container ytd-comment-view-model:hover ytd-expander#expander > #content`),
+    blockOf(
+      `${T}[data-ycf-state="shown"] > #comment-container ytd-comment-view-model:hover ytd-expander#expander > #content`,
+    ),
     /-webkit-line-clamp:\s*4/,
   );
   assert.match(
     blockOf(`${T}[data-ycf-state="shown"][data-ycf-expanded] > #comment-container ytd-expander#expander > #content`),
     /-webkit-line-clamp:\s*unset/,
   );
-  assert.ok(css.includes(`${T}[data-ycf-state="shown"] > #comment-container ytd-expander#expander > tp-yt-paper-button#more`));
+  assert.ok(
+    css.includes(`${T}[data-ycf-state="shown"] > #comment-container ytd-expander#expander > tp-yt-paper-button#more`),
+  );
   assert.match(
     blockOf(`${T}[data-ycf-state="shown"] > #comment-container ytd-expander#expander > tp-yt-paper-button#less`),
     /display:\s*none/,

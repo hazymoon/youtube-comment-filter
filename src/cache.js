@@ -78,7 +78,7 @@ export function createAiCache({ maxEntries, version, storage, schedule }) {
     const valid = Object.entries(raw.entries).filter(([, entry]) => isValidCacheEntry(entry));
     valid.sort((a, b) => /** @type {any} */ (a[1])[3] - /** @type {any} */ (b[1])[3]);
     for (const [id, entry] of valid) {
-      entries.set(id, /** @type {[0|1, string|null, string, number]} */ ([...(/** @type {any[]} */ (entry))]));
+      entries.set(id, /** @type {[0|1, string|null, string, number]} */ ([.../** @type {any[]} */ (entry)]));
     }
     const maxSeq = valid.length > 0 ? /** @type {any} */ (valid[valid.length - 1][1])[3] : 0;
     seq = Math.max(Number.isFinite(raw.seq) ? /** @type {number} */ (raw.seq) : 0, maxSeq);

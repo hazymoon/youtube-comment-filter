@@ -58,14 +58,23 @@ export const USERSCRIPT_META = [
   ['name', 'YouTube Comment Filter'],
   ['namespace', 'https://github.com/hazymoon/youtube-comment-filter'],
   ['version', '0.3.0'],
-  ['description', 'YouTube のコメント欄を、NG ユーザ・NG ワードと端末内の AI（Chrome の Prompt API）の判定で絞り込みます'],
+  [
+    'description',
+    'YouTube のコメント欄を、NG ユーザ・NG ワードと端末内の AI（Chrome の Prompt API）の判定で絞り込みます',
+  ],
   ['homepageURL', 'https://github.com/hazymoon/youtube-comment-filter'],
   ['supportURL', 'https://github.com/hazymoon/youtube-comment-filter/issues'],
   // 開発中の main ではなくリリースしたものだけを配るため、最新の Release の添付ファイルを指す。
   // 更新はこの URL のファイルの @version が上がったときだけ検知される。
-  ['downloadURL', 'https://github.com/hazymoon/youtube-comment-filter/releases/latest/download/youtube-comment-filter.user.js'],
-  ['updateURL', 'https://github.com/hazymoon/youtube-comment-filter/releases/latest/download/youtube-comment-filter.user.js'],
-  ['match','https://www.youtube.com/*'],
+  [
+    'downloadURL',
+    'https://github.com/hazymoon/youtube-comment-filter/releases/latest/download/youtube-comment-filter.user.js',
+  ],
+  [
+    'updateURL',
+    'https://github.com/hazymoon/youtube-comment-filter/releases/latest/download/youtube-comment-filter.user.js',
+  ],
+  ['match', 'https://www.youtube.com/*'],
   ['run-at', 'document-start'],
   ['inject-into', 'page'],
   ['grant', 'GM_getValue'],
@@ -81,7 +90,8 @@ const MODULE_SYNTAX_PATTERN =
 // Inserted at an edited position: a syntax error in code, harmless inside a comment, string or template literal.
 const CODE_CONTEXT_PROBE = ')(}{';
 const UNSUPPORTED_EXPORT_PATTERN = /^export\s+(?:default\b|\{|\*)/m;
-const TOP_LEVEL_DECLARATION_PATTERN = /^(?:async\s+)?(?:function\s*\*?\s*|(?:class|const|let|var)\s+)([A-Za-z_$][\w$]*)/gm;
+const TOP_LEVEL_DECLARATION_PATTERN =
+  /^(?:async\s+)?(?:function\s*\*?\s*|(?:class|const|let|var)\s+)([A-Za-z_$][\w$]*)/gm;
 
 /**
  * メタデータブロックの文字列を作る。
@@ -104,7 +114,9 @@ export function renderMetaBlock(meta = USERSCRIPT_META) {
 export function transformModule(source, fileName) {
   const unsupported = UNSUPPORTED_EXPORT_PATTERN.exec(source);
   if (unsupported) {
-    throw new Error(`${fileName}: "${unsupported[0]}" は使えません。名前付きの export（export function / export const など）だけを使ってください`);
+    throw new Error(
+      `${fileName}: "${unsupported[0]}" は使えません。名前付きの export（export function / export const など）だけを使ってください`,
+    );
   }
   let transformed = '';
   let consumed = 0;
@@ -219,7 +231,9 @@ export function buildUserscript({ srcDir = SRC_DIR, order = MODULE_ORDER, meta =
   try {
     new vm.Script(output, { filename: 'youtube-comment-filter.user.js' });
   } catch (error) {
-    throw new Error(`結合後のスクリプトがコンパイルできません（top-level の名前の重複など）: ${/** @type {Error} */ (error).message}`);
+    throw new Error(
+      `結合後のスクリプトがコンパイルできません（top-level の名前の重複など）: ${/** @type {Error} */ (error).message}`,
+    );
   }
   return output;
 }

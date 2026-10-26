@@ -16,6 +16,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run fmt:check
       - run: npm test
       # dist はコミットして配布するので、src だけ直して作り直し忘れたコミットを落とす
       - name: dist が src から作り直されているか確認する

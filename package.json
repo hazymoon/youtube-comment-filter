@@ -4,6 +4,13 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "lint": "oxlint src scripts test",
+    "fmt": "oxfmt src scripts test",
+    "fmt:check": "oxfmt --check src scripts test"
+  },
+  "devDependencies": {
+    "oxfmt": "0.73.0",
+    "oxlint": "1.88.0"
   }
 }

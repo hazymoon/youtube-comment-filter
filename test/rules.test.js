@@ -114,7 +114,12 @@ test('matchMention: 表示名だけの宛先は一致しない', () => {
 
 test('judgeByRules: 投稿者 → 返信の宛先 → NG ワードの順に判定する', () => {
   const rules = compileRules({ ngUsers: ['@author', '@target'], ngWords: ['ばか'] });
-  const base = { author: { handle: '@someone', channelId: null }, text: 'こんにちは', isReply: false, leadingMentionHref: null };
+  const base = {
+    author: { handle: '@someone', channelId: null },
+    text: 'こんにちは',
+    isReply: false,
+    leadingMentionHref: null,
+  };
 
   assert.deepEqual(judgeByRules(base, rules), { reason: null });
   assert.deepEqual(
@@ -126,7 +131,10 @@ test('judgeByRules: 投稿者 → 返信の宛先 → NG ワードの順に判�
     { reason: 'ngUser', detail: 'mention' },
   );
   // Mentions only count for replies.
-  assert.deepEqual(judgeByRules({ ...base, text: '@target ばか', isReply: false }, rules), { reason: 'ngWord', detail: 'ばか' });
+  assert.deepEqual(judgeByRules({ ...base, text: '@target ばか', isReply: false }, rules), {
+    reason: 'ngWord',
+    detail: 'ばか',
+  });
   assert.deepEqual(judgeByRules({ ...base, text: 'バカ' }, rules), { reason: 'ngWord', detail: 'ばか' });
 });
 
