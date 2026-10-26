@@ -224,7 +224,9 @@ export function extractComment(threadEl) {
   const viewModel = findOwnViewModel(threadEl);
   if (!viewModel) return { unreadable: 'コメント本体の要素が見つかりません' };
   const contentEl =
-    viewModel.querySelector?.(CONTENT_TEXT_SELECTOR) ?? viewModel.querySelector?.(CONTENT_TEXT_FALLBACK_SELECTOR) ?? null;
+    viewModel.querySelector?.(CONTENT_TEXT_SELECTOR) ??
+    viewModel.querySelector?.(CONTENT_TEXT_FALLBACK_SELECTOR) ??
+    null;
   if (!contentEl) return { unreadable: '本文の要素が見つかりません' };
   const id = readCommentId(viewModel);
   if (!id) return { unreadable: 'コメント ID が取れません' };

@@ -91,7 +91,14 @@ async function waitForCalls(h, count) {
  * @param {{ payload: { id: string, text: string }[], resolve: (v: string) => void }} call 呼び出し
  * @param {(item: { id: string, text: string }) => object|null} [decide] 要素ごとの応答。null なら欠落させる
  */
-function answer(call, decide = (item) => ({ id: item.id, hide: item.text.includes('NG'), category: item.text.includes('NG') ? '暴言' : null })) {
+function answer(
+  call,
+  decide = (item) => ({
+    id: item.id,
+    hide: item.text.includes('NG'),
+    category: item.text.includes('NG') ? '暴言' : null,
+  }),
+) {
   call.resolve(JSON.stringify(call.payload.map(decide).filter((v) => v !== null)));
 }
 
@@ -110,7 +117,10 @@ test('batchSize 件ずつに分けて直列に処理し、セッションを必�
   assert.equal(queue.size(), 7);
 
   await waitForCalls(h, 1);
-  assert.deepEqual(h.calls[0].payload.map((v) => v.id), ['c0', 'c1', 'c2']);
+  assert.deepEqual(
+    h.calls[0].payload.map((v) => v.id),
+    ['c0', 'c1', 'c2'],
+  );
   assert.equal(h.calls[0].options.omitResponseConstraintInput, true);
   assert.equal(h.calls[0].options.responseConstraint.items.properties.category.enum.at(-1), null);
   assert.ok(h.calls[0].options.signal instanceof AbortSignal);
@@ -134,7 +144,10 @@ test('batchSize 件ずつに分けて直列に処理し、セッションを必�
   assert.equal(h.stats.maxActive, 1);
   assert.equal(h.stats.clones, 4);
   assert.equal(h.stats.destroys, 4);
-  assert.deepEqual(h.verdicts.map(([id]) => id), ['a', 'b', 'c', 'd', 'e', 'f', 'g']);
+  assert.deepEqual(
+    h.verdicts.map(([id]) => id),
+    ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+  );
   assert.deepEqual(h.verdicts[5], ['f', { hide: true, category: '暴言' }]);
   assert.deepEqual(h.pending, []);
   assert.equal(queue.size(), 0);
@@ -146,7 +159,9 @@ test('応答から欠けたコメントは 1 件ずつ 1 回だけ再判定し�
   queue.enqueue(items('a', 'b', 'c', 'd'));
   await waitForCalls(h, 1);
   // b and d are missing.
-  answer(h.calls[0], (item) => (item.id === 'c1' || item.id === 'c3' ? null : { id: item.id, hide: false, category: null }));
+  answer(h.calls[0], (item) =>
+    item.id === 'c1' || item.id === 'c3' ? null : { id: item.id, hide: false, category: null },
+  );
 
   await waitForCalls(h, 2);
   assert.deepEqual(h.calls[1].payload, [{ id: 'c0', text: '本文 b' }]);
@@ -157,7 +172,10 @@ test('応答から欠けたコメントは 1 件ずつ 1 回だけ再判定し�
   await settle();
 
   assert.equal(h.calls.length, 3);
-  assert.deepEqual(h.verdicts.map(([id]) => id), ['a', 'c', 'b']);
+  assert.deepEqual(
+    h.verdicts.map(([id]) => id),
+    ['a', 'c', 'b'],
+  );
   assert.deepEqual(h.pending, ['d']);
   assert.equal(h.stats.destroys, 3);
   assert.equal(queue.size(), 0);
@@ -173,18 +191,27 @@ test('タイムアウトしたバッチは全件 onPending にし、末尾に 1 
   assert.deepEqual(h.pending, ['a', 'b']);
   assert.equal(h.calls[0].isDestroyed(), true);
   // Requeued at the tail: c, d come first.
-  assert.deepEqual(h.calls[1].payload.map((v) => v.text), ['本文 c', '本文 d']);
+  assert.deepEqual(
+    h.calls[1].payload.map((v) => v.text),
+    ['本文 c', '本文 d'],
+  );
   answer(h.calls[1]);
 
   await waitForCalls(h, 3);
-  assert.deepEqual(h.calls[2].payload.map((v) => v.text), ['本文 a', '本文 b']);
+  assert.deepEqual(
+    h.calls[2].payload.map((v) => v.text),
+    ['本文 a', '本文 b'],
+  );
   assert.equal(queue.size(), 2);
   h.timeouts[2].abort(timeoutError());
   await settle();
 
   assert.equal(h.calls.length, 3, '2 回目のタイムアウトでは入れ直さない');
   assert.deepEqual(h.pending, ['a', 'b', 'a', 'b']);
-  assert.deepEqual(h.verdicts.map(([id]) => id), ['c', 'd']);
+  assert.deepEqual(
+    h.verdicts.map(([id]) => id),
+    ['c', 'd'],
+  );
   assert.deepEqual(h.fatals, []);
   assert.equal(queue.size(), 0);
 });
@@ -245,12 +272,18 @@ test('reset は実行中の prompt を中断し、古い結果を流さない。
   assert.equal(queue.size(), 0);
   queue.enqueue(items('x'));
   await waitForCalls(h, 2);
-  assert.deepEqual(h.calls[1].payload.map((v) => v.text), ['本文 x']);
+  assert.deepEqual(
+    h.calls[1].payload.map((v) => v.text),
+    ['本文 x'],
+  );
   answer(h.calls[1]);
   await settle();
 
   assert.equal(h.calls[0].isDestroyed(), true);
-  assert.deepEqual(h.verdicts.map(([id]) => id), ['x']);
+  assert.deepEqual(
+    h.verdicts.map(([id]) => id),
+    ['x'],
+  );
   assert.deepEqual(h.pending, []);
   assert.deepEqual(h.fatals, []);
   assert.equal(h.stats.maxActive, 1);
@@ -269,7 +302,10 @@ test('中断を無視して遅れて返った結果も、reset 後なら流さ�
   await waitForCalls(h, 2);
   answer(h.calls[1]);
   await settle();
-  assert.deepEqual(h.verdicts.map(([id]) => id), ['x']);
+  assert.deepEqual(
+    h.verdicts.map(([id]) => id),
+    ['x'],
+  );
   assert.equal(h.stats.maxActive, 1);
 });
 
@@ -299,7 +335,10 @@ test('待ち行列か処理中に同じ id があれば重ねない', async () =
   answer(h.calls[1]);
   await settle();
   assert.equal(h.calls.length, 2);
-  assert.deepEqual(h.verdicts.map(([id]) => id), ['a', 'b']);
+  assert.deepEqual(
+    h.verdicts.map(([id]) => id),
+    ['a', 'b'],
+  );
 
   // Once finished, the same id can be enqueued again (e.g. after the text changed).
   queue.enqueue(items('a'));
@@ -321,7 +360,10 @@ test('batchSize 1 では 1 件ずつ判定し、欠落は 1 回だけ再判定�
   answer(h.calls[2]);
   await settle();
   assert.deepEqual(h.pending, ['a']);
-  assert.deepEqual(h.verdicts.map(([id]) => id), ['b']);
+  assert.deepEqual(
+    h.verdicts.map(([id]) => id),
+    ['b'],
+  );
   assert.equal(h.stats.destroys, 3);
 });
 
@@ -383,7 +425,10 @@ test('欠落の再判定がタイムアウトして入れ直された後に再�
   await settle();
 
   assert.equal(h.calls.length, 3);
-  assert.deepEqual(h.verdicts.map(([id]) => id), ['a']);
+  assert.deepEqual(
+    h.verdicts.map(([id]) => id),
+    ['a'],
+  );
   assert.deepEqual(h.pending, ['b', 'b']);
   assert.equal(h.stats.destroys, 3);
   assert.equal(queue.size(), 0);
@@ -401,7 +446,10 @@ test('欠落の再判定中に reset されたら、その結果を流さない'
   await settle();
 
   assert.equal(h.calls.length, 2);
-  assert.deepEqual(h.verdicts.map(([id]) => id), ['a']);
+  assert.deepEqual(
+    h.verdicts.map(([id]) => id),
+    ['a'],
+  );
   assert.deepEqual(h.pending, []);
   assert.equal(h.stats.destroys, 2);
   assert.equal(queue.size(), 0);
@@ -416,7 +464,10 @@ test('onVerdict / onPending に判定に使ったコメント（id と本文）�
     onVerdict: (id, verdict, item) => log.push(['v', id, item]),
     onPending: (id, item) => log.push(['p', id, item]),
   });
-  queue.enqueue([{ id: 'a', text: '本文 a' }, { id: 'b', text: '本文 b' }]);
+  queue.enqueue([
+    { id: 'a', text: '本文 a' },
+    { id: 'b', text: '本文 b' },
+  ]);
   await waitForCalls(h, 1);
   answer(h.calls[0], (item) => (item.id === 'c1' ? null : { id: item.id, hide: false, category: null }));
   await waitForCalls(h, 2);

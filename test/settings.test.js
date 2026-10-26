@@ -6,7 +6,10 @@ import { parseStoredSettings } from '../src/settings.js';
 // スクリプト本体の定数は dist を貼り替えると空に戻るが、値は残るため。
 
 test('文字列の配列をそのまま使い、"/…/flags" の形の文字列は正規表現にする', () => {
-  const result = parseStoredSettings({ ngUsers: ['@foo', 'UCxxxxxxxxxxxxxxxxxxxxxx'], ngWords: ['ネタバレ', '/死ね|しね/i'] });
+  const result = parseStoredSettings({
+    ngUsers: ['@foo', 'UCxxxxxxxxxxxxxxxxxxxxxx'],
+    ngWords: ['ネタバレ', '/死ね|しね/i'],
+  });
   assert.deepEqual(result.ngUsers, ['@foo', 'UCxxxxxxxxxxxxxxxxxxxxxx']);
   assert.equal(result.ngWords[0], 'ネタバレ');
   assert.ok(result.ngWords[1] instanceof RegExp);

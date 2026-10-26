@@ -100,11 +100,13 @@ const AI_ENABLED = true;
 const AI_CATEGORIES = [
   {
     name: '人格攻撃・侮辱',
-    description: '特定の人（投稿者・出演者・他のコメント投稿者など）の能力・容姿・人格をけなす、ばかにする、見下す表現。',
+    description:
+      '特定の人（投稿者・出演者・他のコメント投稿者など）の能力・容姿・人格をけなす、ばかにする、見下す表現。',
   },
   {
     name: '差別・ヘイト',
-    description: '人種・民族・国籍・性別・性的指向・障害・宗教・出身地などの属性を理由に、人や集団をおとしめる、排除を求める表現。',
+    description:
+      '人種・民族・国籍・性別・性的指向・障害・宗教・出身地などの属性を理由に、人や集団をおとしめる、排除を求める表現。',
   },
   {
     name: '煽り・挑発',
@@ -568,9 +570,24 @@ function exampleInsultCategory(categories) {
  * 強い言葉の批判・穏当な批判・改善要望を侮辱と並べ、並び順に関係なく false になる例として示す。
  */
 const EXAMPLE_COMMENTS = [
-  { id: 'c0', text: '字幕があると、音を出せない場所でも見られるので付けてもらえると助かります。', hide: false, insult: false },
-  { id: 'c1', text: 'この結論にはまったく納得できない。比較の条件がそろっていないと思う。', hide: false, insult: false },
-  { id: 'c2', text: '後半の手順には賛成しません。失敗したときの戻し方も説明してほしかったです。', hide: false, insult: false },
+  {
+    id: 'c0',
+    text: '字幕があると、音を出せない場所でも見られるので付けてもらえると助かります。',
+    hide: false,
+    insult: false,
+  },
+  {
+    id: 'c1',
+    text: 'この結論にはまったく納得できない。比較の条件がそろっていないと思う。',
+    hide: false,
+    insult: false,
+  },
+  {
+    id: 'c2',
+    text: '後半の手順には賛成しません。失敗したときの戻し方も説明してほしかったです。',
+    hide: false,
+    insult: false,
+  },
   { id: 'c3', text: 'こんな説明しかできないなんて、投稿者は本当に頭が足りないんだな。', hide: true, insult: true },
 ];
 
@@ -673,7 +690,9 @@ function buildBatchInput(items, maxChars) {
     const seqId = `c${index}`;
     idMap.set(seqId, item.id);
     // Truncate by code points so surrogate pairs are never split.
-    const text = Array.from(String(item.text ?? '')).slice(0, maxChars).join('');
+    const text = Array.from(String(item.text ?? ''))
+      .slice(0, maxChars)
+      .join('');
     return { id: seqId, text };
   });
   return { input: `${BATCH_INPUT_HEADER}\n${JSON.stringify(payload)}`, idMap };
@@ -703,7 +722,11 @@ function parseBatchResponse(text, idMap, categoryNames) {
   try {
     parsed = JSON.parse(text);
   } catch (error) {
-    return { verdicts, missing: allIds, error: `JSON として解釈できません: ${error instanceof Error ? error.message : String(error)}` };
+    return {
+      verdicts,
+      missing: allIds,
+      error: `JSON として解釈できません: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
   if (!Array.isArray(parsed)) {
     return { verdicts, missing: allIds, error: '応答が配列ではありません' };
@@ -719,7 +742,8 @@ function parseBatchResponse(text, idMap, categoryNames) {
     // 同じ ID が重複したら最初の 1 件だけを採る（最初の要素の hide が不正なら、その ID は欠落扱い）
     seen.add(seqId);
     if (typeof element.hide !== 'boolean') continue;
-    const category = typeof element.category === 'string' && knownCategories.has(element.category) ? element.category : null;
+    const category =
+      typeof element.category === 'string' && knownCategories.has(element.category) ? element.category : null;
     verdicts.set(/** @type {string} */ (idMap.get(seqId)), { hide: element.hide, category });
   }
 
@@ -807,7 +831,7 @@ function createAiCache({ maxEntries, version, storage, schedule }) {
     const valid = Object.entries(raw.entries).filter(([, entry]) => isValidCacheEntry(entry));
     valid.sort((a, b) => /** @type {any} */ (a[1])[3] - /** @type {any} */ (b[1])[3]);
     for (const [id, entry] of valid) {
-      entries.set(id, /** @type {[0|1, string|null, string, number]} */ ([...(/** @type {any[]} */ (entry))]));
+      entries.set(id, /** @type {[0|1, string|null, string, number]} */ ([.../** @type {any[]} */ (entry)]));
     }
     const maxSeq = valid.length > 0 ? /** @type {any} */ (valid[valid.length - 1][1])[3] : 0;
     seq = Math.max(Number.isFinite(raw.seq) ? /** @type {number} */ (raw.seq) : 0, maxSeq);
@@ -1526,7 +1550,9 @@ function extractComment(threadEl) {
   const viewModel = findOwnViewModel(threadEl);
   if (!viewModel) return { unreadable: 'コメント本体の要素が見つかりません' };
   const contentEl =
-    viewModel.querySelector?.(CONTENT_TEXT_SELECTOR) ?? viewModel.querySelector?.(CONTENT_TEXT_FALLBACK_SELECTOR) ?? null;
+    viewModel.querySelector?.(CONTENT_TEXT_SELECTOR) ??
+    viewModel.querySelector?.(CONTENT_TEXT_FALLBACK_SELECTOR) ??
+    null;
   if (!contentEl) return { unreadable: '本文の要素が見つかりません' };
   const id = readCommentId(viewModel);
   if (!id) return { unreadable: 'コメント ID が取れません' };
@@ -1609,7 +1635,8 @@ function decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved = fal
   }
   if (extracted.text === '') return { state: 'shown', enqueue: false };
   if (aiMode === 'disabled' || aiMode === 'failed') return { state: 'shown', enqueue: false };
-  if (cached) return cached.hide ? { state: 'hidden', reason: 'ai', enqueue: false } : { state: 'shown', enqueue: false };
+  if (cached)
+    return cached.hide ? { state: 'hidden', reason: 'ai', enqueue: false } : { state: 'shown', enqueue: false };
   return { state: 'pending', reason: aiUnresolved ? 'ai-unresolved' : 'awaiting-ai', enqueue: true };
 }
 
@@ -1711,8 +1738,16 @@ const LINE_HEIGHT_REM = 2;
  * @type {Record<string, { vars: string[], light: string, dark: string }>}
  */
 const BAR_COLORS = {
-  text: { vars: ['--yt-sys-color-baseline--text-primary', '--yt-spec-text-primary'], light: '#0f0f0f', dark: '#f1f1f1' },
-  subtext: { vars: ['--yt-sys-color-baseline--text-secondary', '--yt-spec-text-secondary'], light: '#606060', dark: '#aaa' },
+  text: {
+    vars: ['--yt-sys-color-baseline--text-primary', '--yt-spec-text-primary'],
+    light: '#0f0f0f',
+    dark: '#f1f1f1',
+  },
+  subtext: {
+    vars: ['--yt-sys-color-baseline--text-secondary', '--yt-spec-text-secondary'],
+    light: '#606060',
+    dark: '#aaa',
+  },
   background: {
     vars: ['--yt-sys-color-baseline--tonal-background', '--yt-spec-badge-chip-background'],
     light: 'rgba(0, 0, 0, 0.05)',
@@ -1781,9 +1816,9 @@ const COMMENTS_SCOPES = [
  * @returns {string}
  */
 function forEachScope(build) {
-  return COMMENTS_SCOPES.flatMap((scope) => build(`${scope('')} ${THREAD_TAG}`, (cond) => `${scope(cond)} ${THREAD_TAG}`)).join(
-    ',\n',
-  );
+  return COMMENTS_SCOPES.flatMap((scope) =>
+    build(`${scope('')} ${THREAD_TAG}`, (cond) => `${scope(cond)} ${THREAD_TAG}`),
+  ).join(',\n');
 }
 
 /**
@@ -1802,9 +1837,13 @@ function buildStyles() {
   const close = COMMENTS_SCOPES.map((scope) => scope(`:not([${OPEN_ATTR}])`)).join(',\n');
   const unjudgedStates = [`:not([${STATE_ATTR}])`, `[${STATE_ATTR}="pending"]`];
   const unjudgedThread = forEachScope((thread) => unjudgedStates.map((st) => `${thread}${st}`));
-  const unjudgedContainer = forEachScope((thread) => unjudgedStates.map((st) => `${thread}${st} > #${COMMENT_CONTAINER_ID}`));
+  const unjudgedContainer = forEachScope((thread) =>
+    unjudgedStates.map((st) => `${thread}${st} > #${COMMENT_CONTAINER_ID}`),
+  );
   const unjudgedReplies = forEachScope((thread) => unjudgedStates.map((st) => `${thread}${st} > #${REPLIES_ID}`));
-  const unjudgedBand = forEachScope((thread) => unjudgedStates.map((st) => `${thread}${st} > #${COMMENT_CONTAINER_ID}::before`));
+  const unjudgedBand = forEachScope((thread) =>
+    unjudgedStates.map((st) => `${thread}${st} > #${COMMENT_CONTAINER_ID}::before`),
+  );
   const openBand = forEachScope((_thread, withHtml) =>
     unjudgedStates.map((st) => `${withHtml(`[${OPEN_ATTR}]`)}${st} > #${COMMENT_CONTAINER_ID}::before`),
   );
@@ -1840,8 +1879,12 @@ function buildStyles() {
 
   const contentOf = (container) => `${container} ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
   const hoverOf = (container) => `${container} ${VIEW_MODEL_TAG}:hover ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
-  const shownContent = forEachScope((thread) => [contentOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`)]);
-  const hoverContent = forEachScope((thread) => [hoverOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`)]);
+  const shownContent = forEachScope((thread) => [
+    contentOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`),
+  ]);
+  const hoverContent = forEachScope((thread) => [
+    hoverOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`),
+  ]);
   // 全文固定の間にホバーしても 4 行に戻らないよう、ホバーの規則より詳細度の高いセレクタも並べる
   const expandedContent = forEachScope((thread) => {
     const container = `${thread}[${STATE_ATTR}="shown"][${EXPANDED_ATTR}] > #${COMMENT_CONTAINER_ID}`;
@@ -1857,7 +1900,9 @@ function buildStyles() {
     const stop = line === 0 ? `max(${PREVIEW_CHARS}em, calc(${progress}))` : `calc(${progress})`;
     return `linear-gradient(to right, #000 ${stop}, transparent ${stop})`;
   }).join(', ');
-  const revealPositions = Array.from({ length: HOVER_LINES }, (_, line) => (line === 0 ? '0 0' : `0 ${line * LINE_HEIGHT_REM}rem`)).join(', ');
+  const revealPositions = Array.from({ length: HOVER_LINES }, (_, line) =>
+    line === 0 ? '0 0' : `0 ${line * LINE_HEIGHT_REM}rem`,
+  ).join(', ');
   // マスクは見た目だけを隠し、透明な部分にあるリンクもクリック・ホバーに反応する。clip-path は描画と
   // クリックの対象を両方切り、レイアウトには影響しないので、確保した高さを保ったまま見せた範囲だけを対象にする。
   // 既定の表示は 1 行目の文頭だけを切り出す。見せる量の変数や min()/max() に頼らない単純な式にして、
@@ -2225,7 +2270,12 @@ function defaultLanguageModel() {
  * @param {() => any} [options.getLanguageModel] LanguageModel を返す（テストで差し替える）
  * @returns {LanguageModelController}
  */
-function createLanguageModelController({ categories, enabled, onStateChange, getLanguageModel = defaultLanguageModel }) {
+function createLanguageModelController({
+  categories,
+  enabled,
+  onStateChange,
+  getLanguageModel = defaultLanguageModel,
+}) {
   /** @type {import('./decide.js').AiState} */
   let state = { mode: 'initializing', progress: null };
   /** @type {Promise<any>|null} */
@@ -2497,7 +2547,8 @@ function createThreadProcessor({
    */
   function logAiHidden(category, text) {
     const chars = [...text];
-    const excerpt = chars.length > AI_HIDDEN_EXCERPT_CHARS ? `${chars.slice(0, AI_HIDDEN_EXCERPT_CHARS).join('')}…` : text;
+    const excerpt =
+      chars.length > AI_HIDDEN_EXCERPT_CHARS ? `${chars.slice(0, AI_HIDDEN_EXCERPT_CHARS).join('')}…` : text;
     debugLog('AI が隠したコメント', category, excerpt);
   }
 
@@ -3269,7 +3320,8 @@ function main() {
       return;
     }
     if (typeof GM_getValue !== 'function' || typeof GM_setValue !== 'function') return;
-    if (!window.confirm(`${entry} を NG ユーザに追加しますか？\n（Violentmonkey の「値」タブの ngUsers に保存します）`)) return;
+    if (!window.confirm(`${entry} を NG ユーザに追加しますか？\n（Violentmonkey の「値」タブの ngUsers に保存します）`))
+      return;
     // 確認の間に「値」タブが書き換えられていても消さないよう、確認の後に読み直す
     const next = appendStoredUser(GM_getValue(NG_USERS_VALUE_KEY), entry);
     if (!next) {

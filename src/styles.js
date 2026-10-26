@@ -38,8 +38,16 @@ const LINE_HEIGHT_REM = 2;
  * @type {Record<string, { vars: string[], light: string, dark: string }>}
  */
 const BAR_COLORS = {
-  text: { vars: ['--yt-sys-color-baseline--text-primary', '--yt-spec-text-primary'], light: '#0f0f0f', dark: '#f1f1f1' },
-  subtext: { vars: ['--yt-sys-color-baseline--text-secondary', '--yt-spec-text-secondary'], light: '#606060', dark: '#aaa' },
+  text: {
+    vars: ['--yt-sys-color-baseline--text-primary', '--yt-spec-text-primary'],
+    light: '#0f0f0f',
+    dark: '#f1f1f1',
+  },
+  subtext: {
+    vars: ['--yt-sys-color-baseline--text-secondary', '--yt-spec-text-secondary'],
+    light: '#606060',
+    dark: '#aaa',
+  },
   background: {
     vars: ['--yt-sys-color-baseline--tonal-background', '--yt-spec-badge-chip-background'],
     light: 'rgba(0, 0, 0, 0.05)',
@@ -108,9 +116,9 @@ const COMMENTS_SCOPES = [
  * @returns {string}
  */
 function forEachScope(build) {
-  return COMMENTS_SCOPES.flatMap((scope) => build(`${scope('')} ${THREAD_TAG}`, (cond) => `${scope(cond)} ${THREAD_TAG}`)).join(
-    ',\n',
-  );
+  return COMMENTS_SCOPES.flatMap((scope) =>
+    build(`${scope('')} ${THREAD_TAG}`, (cond) => `${scope(cond)} ${THREAD_TAG}`),
+  ).join(',\n');
 }
 
 /**
@@ -129,9 +137,13 @@ export function buildStyles() {
   const close = COMMENTS_SCOPES.map((scope) => scope(`:not([${OPEN_ATTR}])`)).join(',\n');
   const unjudgedStates = [`:not([${STATE_ATTR}])`, `[${STATE_ATTR}="pending"]`];
   const unjudgedThread = forEachScope((thread) => unjudgedStates.map((st) => `${thread}${st}`));
-  const unjudgedContainer = forEachScope((thread) => unjudgedStates.map((st) => `${thread}${st} > #${COMMENT_CONTAINER_ID}`));
+  const unjudgedContainer = forEachScope((thread) =>
+    unjudgedStates.map((st) => `${thread}${st} > #${COMMENT_CONTAINER_ID}`),
+  );
   const unjudgedReplies = forEachScope((thread) => unjudgedStates.map((st) => `${thread}${st} > #${REPLIES_ID}`));
-  const unjudgedBand = forEachScope((thread) => unjudgedStates.map((st) => `${thread}${st} > #${COMMENT_CONTAINER_ID}::before`));
+  const unjudgedBand = forEachScope((thread) =>
+    unjudgedStates.map((st) => `${thread}${st} > #${COMMENT_CONTAINER_ID}::before`),
+  );
   const openBand = forEachScope((_thread, withHtml) =>
     unjudgedStates.map((st) => `${withHtml(`[${OPEN_ATTR}]`)}${st} > #${COMMENT_CONTAINER_ID}::before`),
   );
@@ -167,8 +179,12 @@ export function buildStyles() {
 
   const contentOf = (container) => `${container} ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
   const hoverOf = (container) => `${container} ${VIEW_MODEL_TAG}:hover ${EXPANDER_SELECTOR} > #${EXPANDER_CONTENT_ID}`;
-  const shownContent = forEachScope((thread) => [contentOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`)]);
-  const hoverContent = forEachScope((thread) => [hoverOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`)]);
+  const shownContent = forEachScope((thread) => [
+    contentOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`),
+  ]);
+  const hoverContent = forEachScope((thread) => [
+    hoverOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`),
+  ]);
   // 全文固定の間にホバーしても 4 行に戻らないよう、ホバーの規則より詳細度の高いセレクタも並べる
   const expandedContent = forEachScope((thread) => {
     const container = `${thread}[${STATE_ATTR}="shown"][${EXPANDED_ATTR}] > #${COMMENT_CONTAINER_ID}`;
@@ -184,7 +200,9 @@ export function buildStyles() {
     const stop = line === 0 ? `max(${PREVIEW_CHARS}em, calc(${progress}))` : `calc(${progress})`;
     return `linear-gradient(to right, #000 ${stop}, transparent ${stop})`;
   }).join(', ');
-  const revealPositions = Array.from({ length: HOVER_LINES }, (_, line) => (line === 0 ? '0 0' : `0 ${line * LINE_HEIGHT_REM}rem`)).join(', ');
+  const revealPositions = Array.from({ length: HOVER_LINES }, (_, line) =>
+    line === 0 ? '0 0' : `0 ${line * LINE_HEIGHT_REM}rem`,
+  ).join(', ');
   // マスクは見た目だけを隠し、透明な部分にあるリンクもクリック・ホバーに反応する。clip-path は描画と
   // クリックの対象を両方切り、レイアウトには影響しないので、確保した高さを保ったまま見せた範囲だけを対象にする。
   // 既定の表示は 1 行目の文頭だけを切り出す。見せる量の変数や min()/max() に頼らない単純な式にして、

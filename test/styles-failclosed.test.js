@@ -34,7 +34,10 @@ function ruleOf(selector) {
 test('動画ページかを JS が付ける html の属性でも判定し、ytd-watch-flexy が外れても閉じる・隠す規則が当たる', () => {
   assert.match(ruleOf(`html[data-ycf-watch]:not([data-ycf-open]) ytd-comments#comments`).body, /visibility:\s*hidden/);
   assert.match(ruleOf(`${WATCH} ${THREAD}[data-ycf-state="hidden"]`).body, /display:\s*none/);
-  assert.match(ruleOf(`${WATCH} ${THREAD}[data-ycf-state="pending"] > #comment-container`).body, /visibility:\s*hidden/);
+  assert.match(
+    ruleOf(`${WATCH} ${THREAD}[data-ycf-state="pending"] > #comment-container`).body,
+    /visibility:\s*hidden/,
+  );
   assert.match(
     ruleOf(`${WATCH} ${THREAD}[data-ycf-state="shown"] > #comment-container ytd-expander#expander > #content`).body,
     /-webkit-line-clamp:\s*4/,
@@ -53,7 +56,9 @@ test('判定前・判定待ちは thread 自体も隠し、#comment-container �
 });
 
 test('全文固定の間は、ホバーしても 4 行に戻らない（全文固定の規則がホバーの規則に勝つ）', () => {
-  const hover = ruleOf(`${FLEXY} ${THREAD}[data-ycf-state="shown"] > #comment-container ytd-comment-view-model:hover ytd-expander#expander > #content`);
+  const hover = ruleOf(
+    `${FLEXY} ${THREAD}[data-ycf-state="shown"] > #comment-container ytd-comment-view-model:hover ytd-expander#expander > #content`,
+  );
   const expandedHover = ruleOf(
     `${FLEXY} ${THREAD}[data-ycf-state="shown"][data-ycf-expanded] > #comment-container ytd-comment-view-model:hover ytd-expander#expander > #content`,
   );
@@ -64,7 +69,10 @@ test('全文固定の間は、ホバーしても 4 行に戻らない（全文�
 test('Shorts のコメント欄（ytd-shorts の中の id の無い ytd-comments）にも、属性と保険の両方で閉じる・隠す規則が当たる', () => {
   const SHORTS_ATTR_SCOPE = 'html[data-ycf-shorts] ytd-shorts ytd-comments';
   const SHORTS_FALLBACK_SCOPE = 'ytd-shorts ytd-comments';
-  assert.match(ruleOf('html[data-ycf-shorts]:not([data-ycf-open]) ytd-shorts ytd-comments').body, /visibility:\s*hidden/);
+  assert.match(
+    ruleOf('html[data-ycf-shorts]:not([data-ycf-open]) ytd-shorts ytd-comments').body,
+    /visibility:\s*hidden/,
+  );
   assert.match(ruleOf('html:not([data-ycf-open]) ytd-shorts ytd-comments').body, /visibility:\s*hidden/);
   for (const base of [SHORTS_ATTR_SCOPE, SHORTS_FALLBACK_SCOPE]) {
     assert.match(ruleOf(`${base} ${THREAD}[data-ycf-state="hidden"]`).body, /display:\s*none/);
