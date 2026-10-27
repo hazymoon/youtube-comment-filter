@@ -7,7 +7,6 @@
  * main.js から DOM の読み書きを切り離し、偽の要素でテストできるようにするためにこのファイルに置く。
  */
 
-
 import { findOwnViewModel, isInsideHiddenThread } from './dom.js';
 import { AUTHOR_LINK_SELECTOR, OWNER_BADGE_LINK_SELECTOR, STATE_ATTR } from './selectors.js';
 
@@ -25,7 +24,9 @@ const FALLBACK_LINK_SELECTOR = 'a[href]';
  * @returns {boolean}
  */
 function isVisibleThread(thread) {
-  return thread?.isConnected !== false && thread?.getAttribute?.(STATE_ATTR) === 'shown' && !isInsideHiddenThread(thread);
+  return (
+    thread?.isConnected !== false && thread?.getAttribute?.(STATE_ATTR) === 'shown' && !isInsideHiddenThread(thread)
+  );
 }
 
 /**

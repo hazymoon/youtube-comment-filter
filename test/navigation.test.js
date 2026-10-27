@@ -72,5 +72,9 @@ test('Shorts で次の動画へ移ると動画の変更として扱い、同じ 
   nav.start();
   assert.deepEqual(nav.finish('https://www.youtube.com/shorts/xyz'), { videoChanged: true });
   nav.start();
-  assert.deepEqual(nav.finish('https://www.youtube.com/watch?v=xyz'), { videoChanged: true }, '同じ ID でもページの種類が変われば別');
+  assert.deepEqual(
+    nav.finish('https://www.youtube.com/watch?v=xyz'),
+    { videoChanged: true },
+    '同じ ID でもページの種類が変われば別',
+  );
 });

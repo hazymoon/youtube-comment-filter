@@ -65,7 +65,8 @@ function makeThread(name, state, build = () => ({ links: [] })) {
   const viewModel = { id: 'comment', tagName: 'YTD-COMMENT-VIEW-MODEL', children: [], hasAttribute: () => false };
   const { author = null, badge = null, links } = build(viewModel);
   viewModel.querySelector = (selector) =>
-    ({ [AUTHOR_LINK_SELECTOR]: author, [OWNER_BADGE_LINK_SELECTOR]: badge, 'a[href]': links[0] ?? null })[selector] ?? null;
+    ({ [AUTHOR_LINK_SELECTOR]: author, [OWNER_BADGE_LINK_SELECTOR]: badge, 'a[href]': links[0] ?? null })[selector] ??
+    null;
   viewModel.querySelectorAll = (selector) => (selector === 'a[href]' ? links : []);
   const container = { id: 'comment-container', tagName: 'DIV', children: [viewModel] };
   const thread = {
@@ -118,7 +119,12 @@ test('後ろが所有者・認証済みのコメントなら、隠れた a#autho
   const blocked = blockedThread(doc, calls);
   const owner = ownerThread('owner', 'shown', doc, calls);
   const after = normalThread('after', 'shown', doc, calls);
-  const target = restoreFocusAfterHide({ threads: [blocked, owner, after], thread: blocked, activeElement: doc.activeElement, doc });
+  const target = restoreFocusAfterHide({
+    threads: [blocked, owner, after],
+    thread: blocked,
+    activeElement: doc.activeElement,
+    doc,
+  });
   assert.equal(doc.activeElement?.name, 'owner:name');
   assert.equal(target?.name, 'owner:name');
 });
@@ -142,8 +148,15 @@ test('投稿者のリンクもバッジも無ければ、本体の中の最初�
   const doc = makeDoc();
   const calls = [];
   const blocked = blockedThread(doc, calls);
-  const next = makeThread('next', 'shown', (viewModel) => ({ links: [makeElement('next:time', doc, calls, { parent: viewModel })] }));
-  const target = restoreFocusAfterHide({ threads: [blocked, next], thread: blocked, activeElement: doc.activeElement, doc });
+  const next = makeThread('next', 'shown', (viewModel) => ({
+    links: [makeElement('next:time', doc, calls, { parent: viewModel })],
+  }));
+  const target = restoreFocusAfterHide({
+    threads: [blocked, next],
+    thread: blocked,
+    activeElement: doc.activeElement,
+    doc,
+  });
   assert.equal(target?.name, 'next:time');
   assert.equal(doc.activeElement?.name, 'next:time');
 });
@@ -163,7 +176,12 @@ test('focus() でフォーカスが移らなければ、同じコメントの次
     return { author, links: [author] };
   });
   const next = normalThread('next', 'shown', doc, calls);
-  const target = restoreFocusAfterHide({ threads: [blocked, broken, allHidden, next], thread: blocked, activeElement: doc.activeElement, doc });
+  const target = restoreFocusAfterHide({
+    threads: [blocked, broken, allHidden, next],
+    thread: blocked,
+    activeElement: doc.activeElement,
+    doc,
+  });
   assert.equal(target?.name, 'next:author');
   assert.equal(doc.activeElement?.name, 'next:author');
   assert.deepEqual(
@@ -182,7 +200,13 @@ test('後ろのコメントでどれも移せなければ、前のコメント�
     return { author, links: [author] };
   });
   const bar = makeElement('bar', doc, calls);
-  restoreFocusAfterHide({ threads: [before, blocked, afterHiddenOnly], thread: blocked, activeElement: doc.activeElement, doc, fallback: bar });
+  restoreFocusAfterHide({
+    threads: [before, blocked, afterHiddenOnly],
+    thread: blocked,
+    activeElement: doc.activeElement,
+    doc,
+    fallback: bar,
+  });
   assert.equal(doc.activeElement?.name, 'before:name');
 
   const doc2 = makeDoc();
@@ -193,7 +217,13 @@ test('後ろのコメントでどれも移せなければ、前のコメント�
     return { author, links: [author] };
   });
   const bar2 = makeElement('bar', doc2, calls2);
-  const target = restoreFocusAfterHide({ threads: [ownerOnlyHidden, blocked2], thread: blocked2, activeElement: doc2.activeElement, doc: doc2, fallback: bar2 });
+  const target = restoreFocusAfterHide({
+    threads: [ownerOnlyHidden, blocked2],
+    thread: blocked2,
+    activeElement: doc2.activeElement,
+    doc: doc2,
+    fallback: bar2,
+  });
   assert.equal(target?.name, 'bar');
   assert.equal(doc2.activeElement?.name, 'bar');
 });
@@ -203,7 +233,16 @@ test('どの候補にも移せなければ null を返す', () => {
   const calls = [];
   const blocked = blockedThread(doc, calls);
   const bar = makeElement('bar', doc, calls, { focusable: false });
-  assert.equal(restoreFocusAfterHide({ threads: [blocked], thread: blocked, activeElement: doc.activeElement, doc, fallback: bar }), null);
+  assert.equal(
+    restoreFocusAfterHide({
+      threads: [blocked],
+      thread: blocked,
+      activeElement: doc.activeElement,
+      doc,
+      fallback: bar,
+    }),
+    null,
+  );
 });
 
 test('前のコメントと件数バーのボタンへはスクロールさせずに移し、後ろのコメントへは既定のスクロールで移す', () => {
@@ -219,7 +258,12 @@ test('前のコメントと件数バーのボタンへはスクロールさせ�
   const prevCalls = [];
   const prev = normalThread('prev', 'shown', prevDoc, prevCalls);
   const blockedLast = blockedThread(prevDoc, prevCalls);
-  restoreFocusAfterHide({ threads: [prev, blockedLast], thread: blockedLast, activeElement: prevDoc.activeElement, doc: prevDoc });
+  restoreFocusAfterHide({
+    threads: [prev, blockedLast],
+    thread: blockedLast,
+    activeElement: prevDoc.activeElement,
+    doc: prevDoc,
+  });
   assert.equal(prevCalls.at(-1)?.[0], 'prev:author');
   assert.equal(prevCalls.at(-1)?.[1]?.preventScroll, true);
 
@@ -227,7 +271,13 @@ test('前のコメントと件数バーのボタンへはスクロールさせ�
   const barCalls = [];
   const only = blockedThread(barDoc, barCalls);
   const bar = makeElement('bar', barDoc, barCalls);
-  restoreFocusAfterHide({ threads: [only], thread: only, activeElement: barDoc.activeElement, doc: barDoc, fallback: bar });
+  restoreFocusAfterHide({
+    threads: [only],
+    thread: only,
+    activeElement: barDoc.activeElement,
+    doc: barDoc,
+    fallback: bar,
+  });
   assert.equal(barCalls.at(-1)?.[0], 'bar');
   assert.equal(barCalls.at(-1)?.[1]?.preventScroll, true);
 });
@@ -306,7 +356,9 @@ function makeReadableThread(handle, holder) {
     children: [],
     data: { commentId: `id-${handle}` },
     querySelector: (selector) =>
-      ({ [CONTENT_TEXT_SELECTOR]: content, [AUTHOR_LINK_SELECTOR]: author, [HEADER_AUTHOR_SELECTOR]: header })[selector] ?? null,
+      ({ [CONTENT_TEXT_SELECTOR]: content, [AUTHOR_LINK_SELECTOR]: author, [HEADER_AUTHOR_SELECTOR]: header })[
+        selector
+      ] ?? null,
   };
   const container = { id: 'comment-container', tagName: 'DIV', children: [viewModel] };
   const thread = {
@@ -335,7 +387,11 @@ function startAndClickBlock() {
   const docListeners = {};
   const html = fakeElement('html', holder);
   const body = fakeElement('body', holder);
-  const threads = [makeReadableThread('@alice', holder), makeReadableThread('@mallory', holder), makeReadableThread('@bob', holder)];
+  const threads = [
+    makeReadableThread('@alice', holder),
+    makeReadableThread('@mallory', holder),
+    makeReadableThread('@bob', holder),
+  ];
   const comments = fakeElement('ytd-comments', holder);
   comments.isConnected = true;
   comments.contains = (node) => threads.includes(node);
@@ -355,7 +411,8 @@ function startAndClickBlock() {
     visibilityState: 'visible',
     createElement: (tag) => fakeElement(tag, holder),
     getElementById: () => null,
-    querySelector: (selector) => (selector === WATCH_COMMENTS_SELECTOR || selector === COMMENTS_SELECTOR ? comments : null),
+    querySelector: (selector) =>
+      selector === WATCH_COMMENTS_SELECTOR || selector === COMMENTS_SELECTOR ? comments : null,
     querySelectorAll: () => [],
     addEventListener(type, fn) {
       docListeners[type] = fn;

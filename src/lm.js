@@ -47,7 +47,12 @@ function defaultLanguageModel() {
  * @param {() => any} [options.getLanguageModel] LanguageModel を返す（テストで差し替える）
  * @returns {LanguageModelController}
  */
-export function createLanguageModelController({ categories, enabled, onStateChange, getLanguageModel = defaultLanguageModel }) {
+export function createLanguageModelController({
+  categories,
+  enabled,
+  onStateChange,
+  getLanguageModel = defaultLanguageModel,
+}) {
   /** @type {import('./decide.js').AiState} */
   let state = { mode: 'initializing', progress: null };
   /** @type {Promise<any>|null} */

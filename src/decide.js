@@ -54,7 +54,8 @@ export function decideState({ extracted, ruleResult, aiMode, cached, aiUnresolve
   }
   if (extracted.text === '') return { state: 'shown', enqueue: false };
   if (aiMode === 'disabled' || aiMode === 'failed') return { state: 'shown', enqueue: false };
-  if (cached) return cached.hide ? { state: 'hidden', reason: 'ai', enqueue: false } : { state: 'shown', enqueue: false };
+  if (cached)
+    return cached.hide ? { state: 'hidden', reason: 'ai', enqueue: false } : { state: 'shown', enqueue: false };
   return { state: 'pending', reason: aiUnresolved ? 'ai-unresolved' : 'awaiting-ai', enqueue: true };
 }
 

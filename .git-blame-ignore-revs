@@ -1,0 +1,4 @@
+# git blame で読み飛ばす、体裁だけを変えたコミット（git config blame.ignoreRevsFile .git-blame-ignore-revs）
+
+# style: oxfmt で全ファイルを整形する
+0346cf42cf1aec2621afdfc52dbcc4e0379967ec

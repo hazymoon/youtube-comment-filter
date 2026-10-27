@@ -59,37 +59,7 @@ AI の有効化・カテゴリ・表示の速さなどは、スクリプト先�
 
 ## 開発
 
-```sh
-npm test
-npm run build
-```
-
-`src/` を編集したら `npm run build` で `dist/` を作り直してコミットします（CI が作り直し忘れを検出します）。
-
-### 手元の dist を実機で確かめる
-
-Violentmonkey にローカルの `dist/youtube-comment-filter.user.js` を追跡させると、`npm run build` で作り直すたびに自動で読み込み直します。コードを貼り付けて入れ替える必要はありません。
-
-1. `chrome://extensions` → Violentmonkey の「詳細」で「ファイルの URL へのアクセスを許可する」をオンにする
-2. `file:///<リポジトリの絶対パス>/dist/youtube-comment-filter.user.js` を Chrome で開き、インストール画面で、ローカルのファイルを追跡するチェックを入れてインストールする
-3. インストール画面のタブは開いたままにする（閉じると追跡が止まる）
-
-同じ名前のスクリプトとして入るので、Release から入れたものと入れ替わります。確かめ終わったら、[インストール](#インストール)の URL から入れ直して戻します。
-worktree で作業しているときは、確かめたい worktree の `dist/` を開きます。
-
-`git switch` などでブランチを切り替えると、追跡が止まります。git はファイルの中身を書き換えるのではなく、ファイルを作り直すため、追跡は消えた古いファイルを見たままになります（`npm run build` は同じファイルに書き込むので止まりません）。複数のブランチを切り替えて確かめるときは、git の管理外の場所に置いたファイルを追跡させ、切り替えるたびに中身だけを上書きします。
-
-```sh
-cat dist/youtube-comment-filter.user.js > <追跡させたファイルの絶対パス>
-```
-
-### リリース
-
-1. `scripts/build.mjs` の `@version` を上げ、`npm run build` してコミットする
-2. 同じバージョンのタグ（例: `v0.1.0`）を push する
-
-タグの push で GitHub Actions が Release を作り、`dist/youtube-comment-filter.user.js` を添付します。
-タグと `@version` が食い違うと Release は作られません。
+開発・実機での確認・リリースの手順は [CONTRIBUTING.md](CONTRIBUTING.md) にあります。
 
 ## ライセンス
 

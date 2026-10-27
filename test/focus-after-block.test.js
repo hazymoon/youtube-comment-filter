@@ -88,7 +88,10 @@ test('フォーカスが body に落ちた後でも移す', () => {
   const focused = [];
   const blocked = makeThread('blocked', 'hidden', focused);
   const b = makeThread('b', 'shown', focused);
-  assert.equal(pickFocusTarget({ threads: [blocked, b], thread: blocked, activeElement: doc.body, doc })?.name, 'b:author');
+  assert.equal(
+    pickFocusTarget({ threads: [blocked, b], thread: blocked, activeElement: doc.body, doc })?.name,
+    'b:author',
+  );
   assert.equal(pickFocusTarget({ threads: [blocked, b], thread: blocked, activeElement: null, doc })?.name, 'b:author');
 });
 
@@ -130,7 +133,10 @@ test('thread が DOM から外れて前後が分からないときは件数バ�
   blocked.isConnected = false;
   const other = makeThread('other', 'shown', focused);
   const bar = focusable('bar', focused);
-  assert.equal(pickFocusTarget({ threads: [other], thread: blocked, activeElement: doc.body, doc, fallback: bar })?.name, 'bar');
+  assert.equal(
+    pickFocusTarget({ threads: [other], thread: blocked, activeElement: doc.body, doc, fallback: bar })?.name,
+    'bar',
+  );
 });
 
 test('thread が表示状態 shown のまま DOM から外れたときも件数バーのボタンへ移す', () => {
@@ -139,7 +145,10 @@ test('thread が表示状態 shown のまま DOM から外れたときも件数�
   removed.isConnected = false;
   const other = makeThread('other', 'shown', focused);
   const bar = focusable('bar', focused);
-  assert.equal(pickFocusTarget({ threads: [other], thread: removed, activeElement: doc.body, doc, fallback: bar })?.name, 'bar');
+  assert.equal(
+    pickFocusTarget({ threads: [other], thread: removed, activeElement: doc.body, doc, fallback: bar })?.name,
+    'bar',
+  );
 });
 
 test('thread がまだ表示中なら（ルールに当たらなかったなど）移さない', () => {
@@ -234,7 +243,9 @@ function makeReadableThread(handle, focused, holder) {
     children: [],
     data: { commentId: `id-${handle}` },
     querySelector: (selector) =>
-      ({ [CONTENT_TEXT_SELECTOR]: content, [AUTHOR_LINK_SELECTOR]: author, [HEADER_AUTHOR_SELECTOR]: header })[selector] ?? null,
+      ({ [CONTENT_TEXT_SELECTOR]: content, [AUTHOR_LINK_SELECTOR]: author, [HEADER_AUTHOR_SELECTOR]: header })[
+        selector
+      ] ?? null,
   };
   const container = { id: 'comment-container', tagName: 'DIV', children: [viewModel] };
   const thread = {
@@ -282,7 +293,8 @@ test('main: NG 登録を確定した後のスキャンで、押したボタン�
     visibilityState: 'visible',
     createElement: (tag) => fakeElement(tag, focused),
     getElementById: () => null,
-    querySelector: (selector) => (selector === WATCH_COMMENTS_SELECTOR || selector === COMMENTS_SELECTOR ? comments : null),
+    querySelector: (selector) =>
+      selector === WATCH_COMMENTS_SELECTOR || selector === COMMENTS_SELECTOR ? comments : null,
     querySelectorAll: () => [],
     addEventListener() {},
   };
