@@ -409,7 +409,8 @@ export function main() {
       return;
     }
     if (typeof GM_getValue !== 'function' || typeof GM_setValue !== 'function') return;
-    if (!window.confirm(`${entry} を NG ユーザに追加しますか？\n（Violentmonkey の「値」タブの ngUsers に保存します）`)) return;
+    if (!window.confirm(`${entry} を NG ユーザに追加しますか？\n（Violentmonkey の「値」タブの ngUsers に保存します）`))
+      return;
     // 確認の間に「値」タブが書き換えられていても消さないよう、確認の後に読み直す
     const next = appendStoredUser(GM_getValue(NG_USERS_VALUE_KEY), entry);
     if (!next) {

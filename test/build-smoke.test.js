@@ -8,7 +8,9 @@ import { MODULE_ORDER, SRC_DIR, buildUserscript } from '../scripts/build.mjs';
 // 構文の検査（node --check）では見つからないので、一覧の突き合わせと、偽の DOM での起動で検出する。
 
 test('src/ の全モジュールが MODULE_ORDER に入っている', () => {
-  const sources = readdirSync(SRC_DIR).filter((name) => name.endsWith('.js')).sort();
+  const sources = readdirSync(SRC_DIR)
+    .filter((name) => name.endsWith('.js'))
+    .sort();
   assert.deepEqual([...MODULE_ORDER].sort(), sources);
 });
 

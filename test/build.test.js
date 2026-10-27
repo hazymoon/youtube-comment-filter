@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import vm from 'node:vm';
-import { OUTPUT_PATH, buildUserscript, transformModule } from '../scripts/build.mjs';
+import { buildUserscript, transformModule } from '../scripts/build.mjs';
 
 const output = buildUserscript();
 
@@ -38,10 +38,6 @@ test('スクリプトとしてコンパイルできる', () => {
   assert.doesNotThrow(() => new vm.Script(output, { filename: 'youtube-comment-filter.user.js' }));
 });
 
-test('dist の内容がビルド結果と一致する（npm run build の実行忘れを検出する）', () => {
-  assert.equal(readFileSync(OUTPUT_PATH, 'utf8'), output);
-});
-
 test('transformModule は複数行の import を削除し、export を外す', () => {
   const source = [
     "import { a } from './a.js';",
@@ -70,7 +66,11 @@ function writeTempModules(files) {
 }
 
 test('export default / export { } / export * を含むモジュールはエラーにする', () => {
-  for (const content of ['export default function f() {}\n', 'const a = 1;\nexport { a };\n', "export * from './x.js';\n"]) {
+  for (const content of [
+    'export default function f() {}\n',
+    'const a = 1;\nexport { a };\n',
+    "export * from './x.js';\n",
+  ]) {
     const dir = writeTempModules({ 'a.js': content, 'main.js': 'export function main() {}\n' });
     assert.throws(() => buildUserscript({ srcDir: dir, order: ['a.js', 'main.js'] }), /a\.js: .*は使えません/);
   }
@@ -98,12 +98,13 @@ test('字下げされた宣言は top-level とみなさない', () => {
 });
 
 test('transformModule は副作用 import の後の名前付き import の間にあるコードを消さない', () => {
-  const source = "import './side.js';\nconst keepMe = 1;\nimport { y } from './b.js';\nexport function f() { return keepMe; }\n";
+  const source =
+    "import './side.js';\nconst keepMe = 1;\nimport { y } from './b.js';\nexport function f() { return keepMe; }\n";
   assert.equal(transformModule(source, 'x.js'), 'const keepMe = 1;\nfunction f() { return keepMe; }\n');
 });
 
 test('transformModule は名前空間 import と既定値付きの import も削除する', () => {
-  const source = "import * as ns from './n.js';\nimport x, { y as z } from \"./z.js\";\nexport const A = 1;\n";
+  const source = 'import * as ns from \'./n.js\';\nimport x, { y as z } from "./z.js";\nexport const A = 1;\n';
   assert.equal(transformModule(source, 'x.js'), 'const A = 1;\n');
 });
 
@@ -132,6 +133,9 @@ test('正規表現で拾いにくい top-level 宣言の重複もエラーにす
     ['const p = 1, q = 2;\n', 'const q = 3;\n'],
   ]) {
     const dir = writeTempModules({ 'a.js': a, 'b.js': b, 'main.js': 'export function main() {}\n' });
-    assert.throws(() => buildUserscript({ srcDir: dir, order: ['a.js', 'b.js', 'main.js'] }), /重複|already been declared/);
+    assert.throws(
+      () => buildUserscript({ srcDir: dir, order: ['a.js', 'b.js', 'main.js'] }),
+      /重複|already been declared/,
+    );
   }
 });

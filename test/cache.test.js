@@ -89,7 +89,12 @@ test('壊れたエントリだけを捨て、正しいエントリは使う', ()
   const throwing = createAiCache({
     maxEntries: 10,
     version: 'v1',
-    storage: { load: () => { throw new Error('boom'); }, save: () => {} },
+    storage: {
+      load: () => {
+        throw new Error('boom');
+      },
+      save: () => {},
+    },
     schedule: h2.schedule,
   });
   assert.equal(throwing.get('ok', 'h'), null);

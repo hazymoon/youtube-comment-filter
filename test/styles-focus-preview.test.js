@@ -20,7 +20,8 @@ const EXPANDED = `${SHOWN}[data-ycf-expanded]`;
 const CONTENT = 'ytd-expander#expander > #content';
 
 const focusOf = (scope, thread = SHOWN) => `${scope} ${thread} > #comment-container ${CONTENT}:focus-visible`;
-const hoverOf = (scope, thread = SHOWN) => `${scope} ${thread} > #comment-container ytd-comment-view-model:hover ${CONTENT}`;
+const hoverOf = (scope, thread = SHOWN) =>
+  `${scope} ${thread} > #comment-container ytd-comment-view-model:hover ${CONTENT}`;
 
 /**
  * CSS を規則ごとのセレクタと宣言に分ける（入れ子の無い規則だけを扱う）。

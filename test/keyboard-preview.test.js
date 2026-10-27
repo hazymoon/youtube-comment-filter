@@ -164,7 +164,8 @@ function run({ ngUsers = [] } = {}) {
     createElement: (tag) => el(tag),
     getElementById: () => null,
     getSelection: () => ({ isCollapsed: true, toString: () => '' }),
-    querySelector: (selector) => (selector === WATCH_COMMENTS_SELECTOR || selector === COMMENTS_SELECTOR ? comments : null),
+    querySelector: (selector) =>
+      selector === WATCH_COMMENTS_SELECTOR || selector === COMMENTS_SELECTOR ? comments : null,
     querySelectorAll: () => [],
     addEventListener(type, fn) {
       (listeners[type] ??= []).push(fn);
@@ -236,7 +237,8 @@ function run({ ngUsers = [] } = {}) {
   };
   /** コメント欄の変化を通知してスキャンを流す */
   const rescan = () => {
-    for (const callback of observers) callback([{ type: 'childList', target: comments, addedNodes: [], removedNodes: [] }]);
+    for (const callback of observers)
+      callback([{ type: 'childList', target: comments, addedNodes: [], removedNodes: [] }]);
     flush();
   };
   return { parentThread, reply, blocked, rescan, fire };
@@ -320,7 +322,11 @@ test('修飾キー付き・押しっぱなしの繰り返し・ほかのキー�
   ];
   for (const fields of cases) {
     const event = fire('keydown', { target: parentThread.content, ...fields });
-    assert.equal(parentThread.thread.hasAttribute(EXPANDED_ATTR), false, JSON.stringify({ ...fields, target: undefined }));
+    assert.equal(
+      parentThread.thread.hasAttribute(EXPANDED_ATTR),
+      false,
+      JSON.stringify({ ...fields, target: undefined }),
+    );
     assert.equal(event.defaultPrevented, false, 'ページの既定の動きを止めない');
   }
 });

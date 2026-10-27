@@ -76,7 +76,10 @@ function makeThread({ id = 'c1', text = '本文' } = {}) {
     polymerController: { data: {}, __data: { commentEntity: { author } } },
   });
   content.parentElement = viewModel;
-  const thread = el({ tag: 'ytd-comment-thread-renderer', children: [el({ id: 'comment-container', children: [viewModel] })] });
+  const thread = el({
+    tag: 'ytd-comment-thread-renderer',
+    children: [el({ id: 'comment-container', children: [viewModel] })],
+  });
   thread.content = content;
   thread.viewModel = viewModel;
   thread.author = author;
