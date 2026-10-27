@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/hazymoon/youtube-comment-filter/compare/v0.4.1...v0.5.0) (2026-10-27)
+
+
+### Features
+
+* キーボードだけでも、コメントの本文を全文まで読めるようにする ([#33](https://github.com/hazymoon/youtube-comment-filter/issues/33)) ([1e6fd28](https://github.com/hazymoon/youtube-comment-filter/commit/1e6fd281cddd907cd8051e0ead22412ca606eedb))
+
 ## [0.4.1](https://github.com/hazymoon/youtube-comment-filter/compare/v0.4.0...v0.4.1) (2026-10-27)
 
 
