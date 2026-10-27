@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/hazymoon/youtube-comment-filter/compare/v0.4.0...v0.4.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* NG 登録でコメントが隠れたあとも、キーボードで続けて操作できるようにする ([#32](https://github.com/hazymoon/youtube-comment-filter/issues/32)) ([4bccb6d](https://github.com/hazymoon/youtube-comment-filter/commit/4bccb6d97b3e3e8d3a3984f50138e4d6f1751d3c))
+
 ## [0.4.0](https://github.com/hazymoon/youtube-comment-filter/compare/v0.3.0...v0.4.0) (2026-10-26)
 
 
