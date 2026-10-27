@@ -22,7 +22,14 @@ import {
  * @param {string[]} focused フォーカスを受けた要素の名前を足す配列
  */
 function focusable(name, focused) {
-  return { name, focus: () => focused.push(name) };
+  // 実際のブラウザと同じく、focus() したら activeElement にする（restoreFocusAfterHide は移せたかを activeElement で確かめる）
+  return {
+    name,
+    focus() {
+      focused.push(name);
+      doc.activeElement = this;
+    },
+  };
 }
 
 /**
@@ -62,7 +69,7 @@ function makeThread(name, state, focused, { parent = null, link = true } = {}) {
   return thread;
 }
 
-const doc = { body: { name: 'body' }, documentElement: { name: 'html' } };
+const doc = { body: { name: 'body' }, documentElement: { name: 'html' }, activeElement: null };
 
 test('隠れた thread の後ろの、いちばん近い表示中のコメントの投稿者のリンクへ移す', () => {
   const focused = [];
@@ -201,10 +208,17 @@ function fakeElement(tag, focused) {
  * ビルド結果の main で読める、投稿者を読める偽の thread（scanner.test.js と同じ形に #header-author を足したもの）。
  * @param {string} handle 投稿者のハンドル
  * @param {string[]} focused フォーカスを受けた要素の名前を足す配列
+ * @param {{ document?: any }} holder 偽の document（thread を作った後に入れる）。focus() したら activeElement にする
  */
-function makeReadableThread(handle, focused) {
+function makeReadableThread(handle, focused, holder) {
   const attrs = new Map();
-  const author = { getAttribute: (name) => (name === 'href' ? `/${handle}` : null), focus: () => focused.push(`${handle}:author`) };
+  const author = {
+    getAttribute: (name) => (name === 'href' ? `/${handle}` : null),
+    focus() {
+      focused.push(`${handle}:author`);
+      holder.document.activeElement = author;
+    },
+  };
   const content = { textContent: '本文', querySelector: () => null };
   const header = {
     children: [],
@@ -244,7 +258,12 @@ test('main: NG 登録を確定した後のスキャンで、押したボタン�
   const focused = [];
   const html = fakeElement('html', focused);
   const body = fakeElement('body', focused);
-  const threads = [makeReadableThread('@alice', focused), makeReadableThread('@mallory', focused), makeReadableThread('@bob', focused)];
+  const holder = {};
+  const threads = [
+    makeReadableThread('@alice', focused, holder),
+    makeReadableThread('@mallory', focused, holder),
+    makeReadableThread('@bob', focused, holder),
+  ];
   const comments = fakeElement('ytd-comments', focused);
   comments.isConnected = true;
   comments.contains = (node) => threads.includes(node);
@@ -291,6 +310,7 @@ test('main: NG 登録を確定した後のスキャンで、押したボタン�
     DOMException,
   };
   context.window.document = document;
+  holder.document = document;
 
   vm.runInNewContext(buildUserscript(), context);
   for (const fn of timers.splice(0)) fn();
