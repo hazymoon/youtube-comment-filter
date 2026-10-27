@@ -185,11 +185,26 @@ export function buildStyles() {
   const hoverContent = forEachScope((thread) => [
     hoverOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`),
   ]);
-  // 全文固定の間にホバーしても 4 行に戻らないよう、ホバーの規則より詳細度の高いセレクタも並べる
-  const expandedContent = forEachScope((thread) => {
-    const container = `${thread}[${STATE_ATTR}="shown"][${EXPANDED_ATTR}] > #${COMMENT_CONTAINER_ID}`;
-    return [contentOf(container), hoverOf(container)];
-  });
+  // キーボードで本文の枠（main.js の decorateThread が Tab で止まれるようにする）にフォーカスがあるときも、
+  // ホバーと同じ量を見せる。本文の枠自体がフォーカスを持つので :has() は要らない。:hover とは別の規則にし、
+  // どちらかのセレクタを解釈できないブラウザでも、もう一方の規則が捨てられないようにする
+  const focusOf = (container) => `${contentOf(container)}:focus-visible`;
+  const focusContent = forEachScope((thread) => [
+    focusOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`),
+  ]);
+  // 本文の枠はマスクと clip-path で自身の輪郭（outline）も切れるので、フォーカスの位置は親の ytd-expander の輪郭で示す。
+  // :has() を解釈しないブラウザで、ほかの規則を巻き込んで捨てられないよう別の規則にする
+  const focusRing = forEachScope((thread) => [
+    `${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID} ${EXPANDER_SELECTOR}:has(> #${EXPANDER_CONTENT_ID}:focus-visible)`,
+  ]);
+  // 全文固定の間にホバー・フォーカスしても 4 行に戻らないよう、それらの規則より詳細度の高いセレクタも並べる。
+  // フォーカスのセレクタは別の規則にし、:focus-visible を解釈できないブラウザで全文固定の規則ごと捨てられないようにする
+  const expandedContainer = (thread) => `${thread}[${STATE_ATTR}="shown"][${EXPANDED_ATTR}] > #${COMMENT_CONTAINER_ID}`;
+  const expandedContent = forEachScope((thread) => [
+    contentOf(expandedContainer(thread)),
+    hoverOf(expandedContainer(thread)),
+  ]);
+  const expandedFocusContent = forEachScope((thread) => [focusOf(expandedContainer(thread))]);
   // 行ごとに見せるマスク。既定の表示とホバーの両方に掛ける。--ycf-reveal が 0 から HOVER_LINES まで増えるにつれ、
   // i 行目は i から i+1 の間で左から右へ見えていく（読む順）。1 行目は文頭の PREVIEW_CHARS 文字ほどの幅から始めるので、
   // 見せる量が 0 の既定の表示では文頭だけが見え、2 行目以降は隠れる。
@@ -213,6 +228,21 @@ export function buildStyles() {
   const revealClip =
     `inset(0 max(0px, min(100% - ${PREVIEW_CHARS}em, (1 - var(--ycf-reveal, 0)) * 100%)) ` +
     `calc(100% - (var(--ycf-reveal, 0) + 1) * ${LINE_HEIGHT_REM}rem) 0)`;
+  // ホバーとキーボードのフォーカスで見せるときの宣言。両方の規則で同じ量を見せるため、1 か所で組み立てる
+  const revealDeclarations = `  max-width: none !important;
+  -webkit-line-clamp: ${HOVER_LINES} !important;
+  line-height: ${LINE_HEIGHT_REM}rem !important;
+  --ycf-reveal: ${HOVER_LINES};
+  transition: --ycf-reveal ${HOVER_LINES * REVEAL_MS_PER_LINE}ms linear ${REVEAL_DELAY_MS}ms;
+  -webkit-mask-image: ${revealMasks};
+  mask-image: ${revealMasks};
+  -webkit-mask-size: 100% ${LINE_HEIGHT_REM}rem;
+  mask-size: 100% ${LINE_HEIGHT_REM}rem;
+  -webkit-mask-position: ${revealPositions};
+  mask-position: ${revealPositions};
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  clip-path: ${revealClip};`;
   const shownButtons = forEachScope((thread) =>
     [MORE_BUTTON_SELECTOR, LESS_BUTTON_SELECTOR].map(
       (button) => `${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID} ${EXPANDER_SELECTOR} > ${button}`,
@@ -281,7 +311,8 @@ ${hiddenThread} {
    既定では 1 行目のマスクで文頭の PREVIEW_CHARS 文字ほどの幅だけを見せ、2 行目以降を隠す。
    マスクはクリックの対象を減らさないので、clip-path で描画とクリックの対象も見せた範囲に絞る。
    行の高さはマスクの帯の高さと揃える。
-   見せる量の transition はホバーの規則にだけ書く（マウスを外したら待たずに文頭だけに戻すため） */
+   キーボードで本文の枠にフォーカスしたときもホバーと同じ量を見せ、Enter・Space で全文に切り替える（main.js）。
+   見せる量の transition はホバー・フォーカスの規則にだけ書く（マウスやフォーカスが外れたら待たずに文頭だけに戻すため） */
 ${shownContent} {
   display: -webkit-box !important;
   -webkit-box-orient: vertical !important;
@@ -304,22 +335,28 @@ ${shownContent} {
 /* ホバー: 待ち時間の後、1 行ずつ左から右へ見せる。行数・幅・マスクは既定の表示と同じにし、見せる量だけを増やす。
    clip-path は見せる量に連動させ、まだ見せていない行をクリックの対象から外す */
 ${hoverContent} {
-  max-width: none !important;
-  -webkit-line-clamp: ${HOVER_LINES} !important;
-  line-height: ${LINE_HEIGHT_REM}rem !important;
-  --ycf-reveal: ${HOVER_LINES};
-  transition: --ycf-reveal ${HOVER_LINES * REVEAL_MS_PER_LINE}ms linear ${REVEAL_DELAY_MS}ms;
-  -webkit-mask-image: ${revealMasks};
-  mask-image: ${revealMasks};
-  -webkit-mask-size: 100% ${LINE_HEIGHT_REM}rem;
-  mask-size: 100% ${LINE_HEIGHT_REM}rem;
-  -webkit-mask-position: ${revealPositions};
-  mask-position: ${revealPositions};
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  clip-path: ${revealClip};
+${revealDeclarations}
+}
+/* キーボードのフォーカス: ホバーと同じ量を同じ待ち時間で見せる */
+${focusContent} {
+${revealDeclarations}
+}
+/* フォーカスの位置を本文の枠の親の輪郭で示す */
+${focusRing} {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 ${expandedContent} {
+  display: block !important;
+  overflow: visible !important;
+  max-width: none !important;
+  -webkit-line-clamp: unset !important;
+  -webkit-mask-image: none;
+  mask-image: none;
+  clip-path: none;
+}
+${expandedFocusContent} {
   display: block !important;
   overflow: visible !important;
   max-width: none !important;

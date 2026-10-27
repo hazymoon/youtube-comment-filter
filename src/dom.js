@@ -13,6 +13,8 @@ import {
   CONTENT_LINK_SELECTOR,
   CONTENT_TEXT_FALLBACK_SELECTOR,
   CONTENT_TEXT_SELECTOR,
+  EXPANDER_CONTENT_ID,
+  EXPANDER_SELECTOR,
   OWNER_BADGE_LINK_SELECTOR,
   PINNED_BADGE_SELECTOR,
   PUBLISHED_TIME_LINK_SELECTOR,
@@ -56,6 +58,17 @@ export function directChildById(el, id, tag) {
 export function findOwnViewModel(threadEl) {
   const container = directChildById(threadEl, COMMENT_CONTAINER_ID);
   return container ? directChildById(container, VIEW_MODEL_ID, VIEW_MODEL_TAG) : null;
+}
+
+/**
+ * thread 自身のコメント本体の中の、段階表示を掛ける本文の枠（ytd-expander#expander の直下の #content）を返す。
+ * 入れ子の返信の本文の枠は返さない。
+ * @param {any} threadEl ytd-comment-thread-renderer
+ * @returns {any|null}
+ */
+export function findOwnExpanderContent(threadEl) {
+  const expander = findOwnViewModel(threadEl)?.querySelector?.(EXPANDER_SELECTOR);
+  return expander ? directChildById(expander, EXPANDER_CONTENT_ID) : null;
 }
 
 /**

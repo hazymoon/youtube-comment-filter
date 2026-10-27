@@ -20,7 +20,7 @@ import {
   NG_WORDS,
 } from './config.js';
 import { buildCountText, buildStatusText } from './decide.js';
-import { directChildById, extractComment, findOwnViewModel } from './dom.js';
+import { directChildById, extractComment, findOwnExpanderContent, findOwnViewModel } from './dom.js';
 import { restoreFocusAfterHide } from './focus.js';
 import { createLanguageModelController } from './lm.js';
 import { createNavigationState, pageKindFromPathname } from './navigation.js';
@@ -38,6 +38,7 @@ import {
   COMMENT_CONTAINER_ID,
   COMMENTS_SELECTOR,
   EXPANDED_ATTR,
+  EXPANDER_CONTENT_ID,
   EXPANDER_SELECTOR,
   INTERACTIVE_SELECTOR,
   NAVIGATE_FINISH_EVENT,
@@ -52,7 +53,7 @@ import {
   WATCH_COMMENTS_SELECTOR,
 } from './selectors.js';
 import { buildStyles } from './styles.js';
-import { createCountBar, ensureBlockButton, isBlockButtonInsertion } from './ui.js';
+import { createCountBar, ensureBlockButton, isBlockButtonInsertion, syncBodyControl } from './ui.js';
 
 /** GM_setValue に保存するキャッシュのキー */
 const CACHE_STORAGE_KEY = 'aiCache';
@@ -188,7 +189,7 @@ export function main() {
     cache,
     getAiMode: () => lm.getState().mode,
     debugLog,
-    onShown: (thread) => ensureBlockButton(findOwnViewModel(thread), doc, onBlockClick),
+    onShown: (thread) => decorateThread(thread),
   });
 
   const queue = createAiQueue({
@@ -292,9 +293,7 @@ export function main() {
     const startedAt = DEBUG ? performance.now() : 0;
     const threads = currentThreads();
     const items = processor.processThreads(threads);
-    for (const thread of threads) {
-      if (thread.getAttribute(STATE_ATTR) === 'shown') ensureBlockButton(findOwnViewModel(thread), doc, onBlockClick);
-    }
+    for (const thread of threads) decorateThread(thread);
     if (pendingFocusThread) {
       // NG 登録で thread が隠れると、フォーカスしていたボタンごと消えて body に落ちるので、近くの表示中のコメントへ移す
       const thread = pendingFocusThread;
@@ -306,6 +305,18 @@ export function main() {
     renderBar();
     // 工程 3 でスキャンの所要時間を実ページで測るための記録
     if (DEBUG) debugLog('スキャン', threads.length, '件', `${(performance.now() - startedAt).toFixed(1)}ms`);
+  }
+
+  /**
+   * 表示中のコメントに NG 登録のボタンを付け、本文の枠をキーボードで操作できるようにする。
+   * 表示中でなくなったコメントの本文の枠は戻す（Tab で止まらないようにする）。
+   * 属性はコメント欄の監視の対象（hidden だけ）に入らないので、書き込んでもスキャンは回らない
+   * @param {Element} thread ytd-comment-thread-renderer
+   */
+  function decorateThread(thread) {
+    const shown = thread.getAttribute(STATE_ATTR) === 'shown';
+    if (shown) ensureBlockButton(findOwnViewModel(thread), doc, onBlockClick);
+    syncBodyControl(findOwnExpanderContent(thread), shown, thread.hasAttribute(EXPANDED_ATTR));
   }
 
   /** スキャンを予約する。予約済みなら重ねない。 */
@@ -428,6 +439,31 @@ export function main() {
   }
 
   /**
+   * 段階表示を切り替える thread を返す。返信の本文の操作で親を切り替えないよう、ytd-expander#expander が
+   * いちばん内側の thread の直下の #comment-container の中にあり、その thread が監視中のコメント欄の
+   * 表示中のコメントのときだけ返す。
+   * @param {any} expander ytd-expander#expander
+   * @returns {Element|null}
+   */
+  function toggleTargetOf(expander) {
+    const thread = expander.closest(THREAD_TAG);
+    const container = thread ? directChildById(thread, COMMENT_CONTAINER_ID) : null;
+    if (!thread || !container || !container.contains(expander)) return null;
+    if (thread.getAttribute(STATE_ATTR) !== 'shown' || !commentsEl || !commentsEl.contains(thread)) return null;
+    return thread;
+  }
+
+  /**
+   * 全文表示の固定を切り替え、本文の枠の aria-expanded を合わせる。
+   * EXPANDED_ATTR の変化はコメント欄の監視に届かずスキャンが回らないので、ここで合わせる
+   * @param {Element} thread ytd-comment-thread-renderer
+   */
+  function toggleExpanded(thread) {
+    const expanded = thread.toggleAttribute(EXPANDED_ATTR);
+    syncBodyControl(findOwnExpanderContent(thread), true, expanded);
+  }
+
+  /**
    * 段階表示のクリック。本文（thread の直下の #comment-container 内の ytd-expander#expander）のクリックで
    * 全文表示の固定を切り替える。リンク・ボタン上と、文字列の選択中は反応しない。
    * @param {MouseEvent} event クリック
@@ -437,19 +473,39 @@ export function main() {
     if (!target || typeof target.closest !== 'function') return;
     const expander = target.closest(EXPANDER_SELECTOR);
     if (!expander) return;
+    // 本文の枠自身もキーボードで操作できるよう role="button" を持つので（decorateThread）、本文の枠そのものは除く
+    const body = directChildById(expander, EXPANDER_CONTENT_ID);
     const interactive = target.closest(INTERACTIVE_SELECTOR);
-    if (interactive && expander.contains(interactive)) return;
+    if (interactive && interactive !== body && expander.contains(interactive)) return;
     const selection = doc.getSelection?.();
     if (selection && !selection.isCollapsed && selection.toString() !== '') return;
-    // 返信の本文のクリックで親を切り替えないよう、いちばん内側の thread の直下の #comment-container の中かを確かめる
-    const thread = expander.closest(THREAD_TAG);
-    const container = thread ? directChildById(thread, COMMENT_CONTAINER_ID) : null;
-    if (!thread || !container || !container.contains(expander)) return;
-    if (thread.getAttribute(STATE_ATTR) !== 'shown' || !commentsEl || !commentsEl.contains(thread)) return;
-    thread.toggleAttribute(EXPANDED_ATTR);
+    const thread = toggleTargetOf(expander);
+    if (thread) toggleExpanded(thread);
+  }
+
+  /**
+   * 段階表示のキー操作。本文の枠にフォーカスがあるとき、Enter・Space で全文表示の固定を切り替える（クリックと同じ）。
+   * 本文の中のリンクなどからのキーと、修飾キー付き・押しっぱなしの繰り返し・変換中のキーは、それぞれの既定の動きに任せる。
+   * 切り替えたときは、Space でページがスクロールしたり YouTube のショートカット（再生・一時停止）が動いたりしないよう、
+   * 既定の動きと伝播を止める。YouTube のリスナーより先に受け取れるよう、capture で受ける
+   * @param {KeyboardEvent} event キー入力
+   */
+  function onDocumentKeydown(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat || event.isComposing) return;
+    const target = /** @type {any} */ (event.target);
+    if (!target || typeof target.closest !== 'function') return;
+    const expander = target.closest(EXPANDER_SELECTOR);
+    if (!expander || directChildById(expander, EXPANDER_CONTENT_ID) !== target) return;
+    const thread = toggleTargetOf(expander);
+    if (!thread) return;
+    event.preventDefault();
+    event.stopPropagation();
+    toggleExpanded(thread);
   }
 
   doc.addEventListener('click', onDocumentClick);
+  doc.addEventListener('keydown', onDocumentKeydown, true);
 
   doc.addEventListener(NAVIGATE_START_EVENT, () => {
     // 完了までは順番待ちに入れない（DOM に残る前の動画の thread を入れ直さないため）
