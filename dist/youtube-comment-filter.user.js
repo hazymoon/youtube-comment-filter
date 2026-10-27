@@ -1863,11 +1863,11 @@ function buildStyles() {
   const focusRing = forEachScope((thread) => [
     `${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID} ${EXPANDER_SELECTOR}:has(> #${EXPANDER_CONTENT_ID}:focus-visible)`,
   ]);
-  // 全文固定の間にホバー・フォーカスしても 4 行に戻らないよう、それらの規則より詳細度の高いセレクタも並べる
-  const expandedContent = forEachScope((thread) => {
-    const container = `${thread}[${STATE_ATTR}="shown"][${EXPANDED_ATTR}] > #${COMMENT_CONTAINER_ID}`;
-    return [contentOf(container), hoverOf(container), focusOf(container)];
-  });
+  // 全文固定の間にホバー・フォーカスしても 4 行に戻らないよう、それらの規則より詳細度の高いセレクタも並べる。
+  // フォーカスのセレクタは別の規則にし、:focus-visible を解釈できないブラウザで全文固定の規則ごと捨てられないようにする
+  const expandedContainer = (thread) => `${thread}[${STATE_ATTR}="shown"][${EXPANDED_ATTR}] > #${COMMENT_CONTAINER_ID}`;
+  const expandedContent = forEachScope((thread) => [contentOf(expandedContainer(thread)), hoverOf(expandedContainer(thread))]);
+  const expandedFocusContent = forEachScope((thread) => [focusOf(expandedContainer(thread))]);
   // 行ごとに見せるマスク。既定の表示とホバーの両方に掛ける。--ycf-reveal が 0 から HOVER_LINES まで増えるにつれ、
   // i 行目は i から i+1 の間で左から右へ見えていく（読む順）。1 行目は文頭の PREVIEW_CHARS 文字ほどの幅から始めるので、
   // 見せる量が 0 の既定の表示では文頭だけが見え、2 行目以降は隠れる。
@@ -2009,6 +2009,15 @@ ${focusRing} {
   border-radius: 4px;
 }
 ${expandedContent} {
+  display: block !important;
+  overflow: visible !important;
+  max-width: none !important;
+  -webkit-line-clamp: unset !important;
+  -webkit-mask-image: none;
+  mask-image: none;
+  clip-path: none;
+}
+${expandedFocusContent} {
   display: block !important;
   overflow: visible !important;
   max-width: none !important;
