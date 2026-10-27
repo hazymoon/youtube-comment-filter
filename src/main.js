@@ -21,6 +21,7 @@ import {
 } from './config.js';
 import { buildCountText, buildStatusText } from './decide.js';
 import { directChildById, extractComment, findOwnExpanderContent, findOwnViewModel } from './dom.js';
+import { restoreFocusAfterHide } from './focus.js';
 import { createLanguageModelController } from './lm.js';
 import { createNavigationState, pageKindFromPathname } from './navigation.js';
 import {
@@ -165,6 +166,11 @@ export function main() {
   let documentObserver = null;
   /** @type {ReturnType<typeof setTimeout>|null} */
   let scanTimer = null;
+  /**
+   * NG 登録を確定した thread。thread を隠すのは次のスキャンなので、そこでフォーカスを移すために覚えておく
+   * @type {Element|null}
+   */
+  let pendingFocusThread = null;
 
   const lm = createLanguageModelController({
     categories: AI_CATEGORIES,
@@ -279,6 +285,8 @@ export function main() {
   function scan() {
     scanTimer = null;
     if (!commentsEl || !isTargetPage()) {
+      // コメント欄を離れたら、前の欄の thread へのフォーカスの移し替えを持ち越さない
+      pendingFocusThread = null;
       renderBar();
       return;
     }
@@ -286,6 +294,12 @@ export function main() {
     const threads = currentThreads();
     const items = processor.processThreads(threads);
     for (const thread of threads) decorateThread(thread);
+    if (pendingFocusThread) {
+      // NG 登録で thread が隠れると、フォーカスしていたボタンごと消えて body に落ちるので、近くの表示中のコメントへ移す
+      const thread = pendingFocusThread;
+      pendingFocusThread = null;
+      restoreFocusAfterHide({ threads, thread, activeElement: doc.activeElement, doc, fallback: bar.button });
+    }
     // 遷移中は入れない。判定中のまま残った thread は、遷移の完了後のスキャンで入れる
     if (items.length > 0 && navigation.canEnqueue()) queue.enqueue(items);
     renderBar();
@@ -419,6 +433,7 @@ export function main() {
     }
     GM_setValue(NG_USERS_VALUE_KEY, next);
     debugLog('NG ユーザに追加', entry);
+    pendingFocusThread = thread;
     processor.setRules(buildRules());
     scheduleScan();
   }
@@ -500,6 +515,7 @@ export function main() {
     // 別の動画へ移ったときだけ、前の動画の判定を止めてコメント欄を閉じた状態に戻す。
     // 同じ動画の中の遷移（時刻や lc= 付きの URL）では、読んでいる途中の欄を閉じない
     if (navigation.finish(location.href).videoChanged) {
+      pendingFocusThread = null;
       queue.reset();
       doc.documentElement.removeAttribute(OPEN_ATTR);
     }
