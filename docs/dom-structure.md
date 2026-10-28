@@ -111,4 +111,5 @@ ytd-shorts
 - 投稿者のリンクの href は `/@handle`、`#published-time-text a` の href は `lc=` を持ち、その値は `.data.commentId` と一致した。`.polymerController.__data.commentEntity.author.channelId` も取れた
 - Shorts のページでも `ytd-watch-flexy` とその中の `ytd-comments#comments`（中身は空）が DOM に残っている。対象のコメント欄はページの種類で探し分ける
 - 次の Shorts へ移ると `yt-navigate-start` → `yt-navigate-finish` が発火した。`ytd-comments` とパネルの要素は使い回され（同一の要素のまま）、パネルは開いたまま中身だけが次の動画のコメントに入れ替わった
+- 2026-10-28 に、パネルを開いたまま次の Shorts へ移ったあと、`ytd-comments` が作り直されていたことがあった（`ytd-shorts ytd-comments` は 1 つで、その中の thread は本スクリプトが判定していない状態、件数バーは DOM に無かった）。使い回されるとは限らないので、コメント欄は遷移のイベントを待たずに探し直す
 
