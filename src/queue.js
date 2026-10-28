@@ -43,6 +43,8 @@ function isTimeoutAbort(signal) {
  *   reset しても戻らない
  * - reset 前に始まった判定の結果は onVerdict / onPending に流さない。コールバックの中で reset されたときも、
  *   同じバッチの残りは流さない
+ * - 取り出す時点で isWanted が false のコメントは、AI に送らずに捨てる（onVerdict / onPending も呼ばない）。
+ *   判定がまだ要るなら、呼び出し側のスキャンが enqueue し直す
  * - onVerdict / onPending には判定に使ったコメント（enqueue 時の id と本文）も渡す。
  *   判定中に本文が変わっていないかは呼び出し側が確かめ、変わっていれば判定結果を保存せず enqueue し直す
  *
@@ -57,6 +59,8 @@ function isTimeoutAbort(signal) {
  * @param {(id: string, item: { id: string, text: string }) => void} options.onPending 判定が得られなかった（判定待ち）
  * @param {(error: unknown) => void} options.onFatal AI が使えなくなった
  * @param {(ms: number) => AbortSignal} [options.createTimeoutSignal] タイムアウト用シグナルの生成（テストで差し替える）
+ * @param {(id: string) => boolean} [options.isWanted] 取り出す時点で、そのコメントの判定がまだ要るか。
+ *   要らなければ AI に送らずに捨てる（判定待ちのまま DOM から消えたコメントで、AI の時間を使わないため）
  * @returns {AiQueue}
  */
 export function createAiQueue({
@@ -69,6 +73,7 @@ export function createAiQueue({
   onPending,
   onFatal,
   createTimeoutSignal = (ms) => AbortSignal.timeout(ms),
+  isWanted = () => true,
 }) {
   const effectiveBatchSize = Math.max(1, Math.floor(batchSize) || 1);
   const responseSchema = buildResponseSchema(categories);
@@ -227,16 +232,29 @@ export function createAiQueue({
     }
   }
 
+  /**
+   * 待ち行列の先頭から 1 バッチ分を取り出す。判定の要らなくなったコメントは捨てて詰める。
+   * @returns {{ id: string, text: string }[]}
+   */
+  function takeBatch() {
+    /** @type {{ id: string, text: string }[]} */
+    const batch = [];
+    while (batch.length < effectiveBatchSize && waiting.length > 0) {
+      const item = /** @type {{ id: string, text: string }} */ (waiting.shift());
+      waitingIds.delete(item.id);
+      if (isWanted(item.id)) batch.push(item);
+    }
+    return batch;
+  }
+
   async function run() {
     running = true;
     try {
       while (waiting.length > 0 && !fatal) {
         const batchGeneration = generation;
-        const batch = waiting.splice(0, effectiveBatchSize);
-        for (const item of batch) {
-          waitingIds.delete(item.id);
-          inFlightIds.add(item.id);
-        }
+        const batch = takeBatch();
+        if (batch.length === 0) continue;
+        for (const item of batch) inFlightIds.add(item.id);
         await processBatch(batch, batchGeneration, false);
         if (batchGeneration === generation) {
           for (const item of batch) {
