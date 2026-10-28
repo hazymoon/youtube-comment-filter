@@ -162,7 +162,7 @@ export function main() {
   let commentsEl = null;
   /** @type {MutationObserver|null} */
   let commentsObserver = null;
-  /** @type {MutationObserver|null} コメント欄の出現を待つ監視 */
+  /** @type {MutationObserver|null} コメント欄の出現と作り直しを見張る監視 */
   let documentObserver = null;
   /** @type {ReturnType<typeof setTimeout>|null} */
   let scanTimer = null;
@@ -327,7 +327,7 @@ export function main() {
 
   /**
    * 動画ページか Shorts のコメント欄を探して監視し、件数バーを差し込む。要素が作り直されていたら付け直す。
-   * まだ無ければ document を監視して出現を待つ。
+   * 対象のページにいる間は document を監視し、コメント欄の出現と作り直しを待つ。
    */
   function attach() {
     updatePageAttrs();
@@ -367,23 +367,34 @@ export function main() {
       commentsObserver = null;
       commentsEl = null;
     }
-    if (commentsEl) {
-      bar.attach(commentsEl);
-      documentObserver?.disconnect();
-      documentObserver = null;
-    } else if (!documentObserver) {
+    if (commentsEl) bar.attach(commentsEl);
+    // コメント欄が見つかった後も document の監視は残す。Shorts で次の動画へ移ると、YouTube は yt-navigate-finish の
+    // 後でコメント欄の ytd-comments を作り直すことがあり、古い要素の監視では気づけず、件数バーも古い要素と一緒に外れるため
+    if (!documentObserver) {
       let pending = false;
       documentObserver = new MutationObserver(() => {
         if (pending) return;
         pending = true;
         setTimeout(() => {
           pending = false;
-          attach();
+          revalidateComments();
         }, SCAN_DELAY_MS);
       });
       documentObserver.observe(doc.documentElement, { childList: true, subtree: true });
     }
     scheduleScan();
+  }
+
+  /**
+   * document の変化を受けて、監視中のコメント欄がいまも対象のコメント欄かを確かめる。
+   * 作り直されていたら付け直し、同じなら件数バーが外れていたときだけ差し込み直す（スキャンは予約しない）。
+   */
+  function revalidateComments() {
+    if (!commentsEl || !commentsEl.isConnected || findComments() !== commentsEl) {
+      attach();
+      return;
+    }
+    bar.attach(commentsEl);
   }
 
   /**
