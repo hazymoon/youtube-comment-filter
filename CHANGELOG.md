@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/hazymoon/youtube-comment-filter/compare/v0.5.0...v0.5.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* Shorts で次の動画へ移ったあとも、コメント欄とツールバーが表示されるようにする ([#36](https://github.com/hazymoon/youtube-comment-filter/issues/36)) ([29eef11](https://github.com/hazymoon/youtube-comment-filter/commit/29eef11f268ad447316b960953c87b226a7ba3b1))
+
 ## [0.5.0](https://github.com/hazymoon/youtube-comment-filter/compare/v0.4.1...v0.5.0) (2026-10-27)
 
 
