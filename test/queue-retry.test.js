@@ -6,7 +6,7 @@ const CATEGORIES = [{ name: '暴言', description: '乱暴な言葉' }];
 
 /**
  * 偽の LanguageModel を持つ順番待ちの部品を作る。prompt はテストが応答するまで待つ。
- * @param {{ cloneGate?: Promise<void> }} [options] cloneGate を渡すと、clone はそれが解決するまで待つ
+ * @param {{ cloneGate?: Promise<void> }} [options] cloneGate を渡すと、基底セッションの準備（waitForReady）はそれが解決するまで待つ
  */
 function createHarness(options = {}) {
   const calls = [];
@@ -21,8 +21,10 @@ function createHarness(options = {}) {
     pending,
     fatals,
     options: {
-      async cloneSession() {
+      async waitForReady() {
         if (options.cloneGate) await options.cloneGate;
+      },
+      async cloneSession() {
         return {
           prompt(input, promptOptions) {
             return new Promise((resolve, reject) => {

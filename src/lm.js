@@ -25,7 +25,9 @@ function defaultLanguageModel() {
  * @property {() => import('./decide.js').AiState} getState 現在の状態
  * @property {() => Promise<void>} init availability() を確かめ、使えるなら基底セッションの作成を始める
  * @property {() => void} activate ユーザー操作を起点に基底セッションの作成を始める。クリックハンドラの同期区間で最初に呼ぶ
+ * @property {() => Promise<void>} waitForReady 基底セッションの準備を待つ。作成に失敗していれば reject する
  * @property {() => Promise<any>} cloneSession 基底セッションの準備を待って clone する。作成に失敗していれば reject する
+ * @property {() => void} recreate 基底セッションを破棄して作り直す（判定が返らなくなったときに使う）。ready のときだけ動く
  * @property {(error: unknown) => void} markFailed 推論でタイムアウト以外のエラーが起きたことを記録する
  * @property {() => void} destroy 基底セッションを破棄する
  */
@@ -39,6 +41,8 @@ function defaultLanguageModel() {
  * - 'unavailable' なら 'disabled'、availability() の例外や作成の失敗は 'failed'
  *
  * 基底セッションは SPA の遷移をまたいで使い回す（作成にモデルの読み込み分の時間がかかるため。docs/spike.md）。
+ * ただし Chrome がメモリーセーバーなどで裏でモデルを片付けると、基底セッションからの clone や prompt が返らなくなり、
+ * ページを読み直すまで判定が進まない。そのため判定が返らなくなったら recreate() で作り直す。
  *
  * @param {object} options
  * @param {{ name: string, description: string }[]} options.categories AI_CATEGORIES
@@ -65,13 +69,22 @@ export function createLanguageModelController({
   let resolveReady = () => {};
   /** @type {(error: unknown) => void} */
   let rejectReady = () => {};
-  /** 基底セッションの準備。作成の成否が決まるまで待たせる */
-  const ready = new Promise((resolve, reject) => {
-    resolveReady = resolve;
-    rejectReady = reject;
-  });
-  // cloneSession が呼ばれないまま失敗しても未処理の reject にしない
-  ready.catch(() => {});
+  /** @type {Promise<any>} 基底セッションの準備。作成の成否が決まるまで待たせる。recreate() で作り直す */
+  let ready = newReady();
+
+  /**
+   * 基底セッションの準備の promise を作り、resolveReady / rejectReady をそれに向ける。
+   * @returns {Promise<any>}
+   */
+  function newReady() {
+    const promise = new Promise((resolve, reject) => {
+      resolveReady = resolve;
+      rejectReady = reject;
+    });
+    // cloneSession が呼ばれないまま失敗しても未処理の reject にしない
+    promise.catch(() => {});
+    return promise;
+  }
 
   /**
    * 状態を変えて知らせる。
@@ -129,7 +142,8 @@ export function createLanguageModelController({
     );
   }
 
-  return {
+  /** @type {LanguageModelController} */
+  const controller = {
     getState() {
       return state;
     },
@@ -181,9 +195,22 @@ export function createLanguageModelController({
       startCreate(languageModel);
     },
 
+    async waitForReady() {
+      await ready;
+    },
+
     async cloneSession() {
       const session = await ready;
       return session.clone();
+    },
+
+    recreate() {
+      if (state.mode !== 'ready') return;
+      controller.destroy();
+      createPromise = null;
+      // 作り直しの間の clone は新しい基底セッションを待たせるので、同期で差し替える
+      ready = newReady();
+      void controller.init();
     },
 
     markFailed() {
@@ -199,4 +226,5 @@ export function createLanguageModelController({
       baseSession = null;
     },
   };
+  return controller;
 }

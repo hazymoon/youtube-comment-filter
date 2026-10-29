@@ -27,6 +27,35 @@ function isTimeoutAbort(signal) {
 }
 
 /**
+ * promise の完了か signal の中断の早いほうで決まる promise を返す。中断で決まったら、元の promise の reject は捨てる。
+ * @template T
+ * @param {Promise<T>} promise 待つ promise
+ * @param {AbortSignal} signal 中断のシグナル
+ * @returns {Promise<T>}
+ */
+function raceAbort(promise, signal) {
+  promise.catch(() => {});
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
+
+/**
+ * セッションを破棄する。
+ * @param {AiSession} session セッション
+ */
+function destroySession(session) {
+  try {
+    session.destroy();
+  } catch {
+    // destroy の失敗は判定に影響しないので無視する
+  }
+}
+
+/**
  * AI 判定の順番待ちを作る。
  *
  * 同一セッションへの同時投入は失敗するため（docs/spike.md）、batchSize 件ずつ取り出して 1 本で直列に処理する。
@@ -38,7 +67,10 @@ function isTimeoutAbort(signal) {
  *   判定が出たコメントは再試行の回数を消すので、後で再び enqueue されたときはまた 1 回入れ直せる
  * - 2 件以上のバッチで hide:true になったコメントは、欠落の再判定の後に 1 件だけのバッチで判定し直し、その結果を流す。
  *   再判定がタイムアウトしたらタイムアウトと同じく扱い、応答から欠けたら onPending にする
- * - タイムアウトは clone できてから数える（基底セッションの準備を待つ時間は含めない）
+ * - タイムアウトは waitForReady が済んでから数え、clone と prompt を含める（基底セッションの準備を待つ時間は含めない）。
+ *   タイムアウトしたら、返らない clone や prompt を待たずに次へ進む。clone が返らなかったときと、
+ *   応答を挟まずにタイムアウトが続いたときは、基底セッションが使えなくなったとみなして onSessionStale を呼ぶ
+ *   （遅いだけの 1 回のタイムアウトで、モデルの読み込みからやり直させないため）
  * - タイムアウト以外の例外は onFatal を呼び、以降の enqueue を無視する（呼び出し側はルールだけの判定に切り替える）。
  *   reset しても戻らない
  * - reset 前に始まった判定の結果は onVerdict / onPending に流さない。コールバックの中で reset されたときも、
@@ -48,6 +80,7 @@ function isTimeoutAbort(signal) {
  *
  * @param {object} options
  * @param {() => Promise<AiSession>} options.cloneSession 基底セッションを clone する
+ * @param {() => Promise<void>} [options.waitForReady] 基底セッションの準備を待つ。準備ができなければ reject する
  * @param {number} options.batchSize 1 バッチの件数
  * @param {number} options.timeoutMs 1 バッチの時間の上限（ミリ秒）
  * @param {number} options.maxChars 1 コメントの本文の最大文字数
@@ -56,11 +89,13 @@ function isTimeoutAbort(signal) {
  *   判定が出た
  * @param {(id: string, item: { id: string, text: string }) => void} options.onPending 判定が得られなかった（判定待ち）
  * @param {(error: unknown) => void} options.onFatal AI が使えなくなった
+ * @param {() => void} [options.onSessionStale] 基底セッションが使えなくなったとみなした
  * @param {(ms: number) => AbortSignal} [options.createTimeoutSignal] タイムアウト用シグナルの生成（テストで差し替える）
  * @returns {AiQueue}
  */
 export function createAiQueue({
   cloneSession,
+  waitForReady = async () => {},
   batchSize,
   timeoutMs,
   maxChars,
@@ -68,6 +103,7 @@ export function createAiQueue({
   onVerdict,
   onPending,
   onFatal,
+  onSessionStale = () => {},
   createTimeoutSignal = (ms) => AbortSignal.timeout(ms),
 }) {
   const effectiveBatchSize = Math.max(1, Math.floor(batchSize) || 1);
@@ -88,32 +124,46 @@ export function createAiQueue({
   let resetController = new AbortController();
   let running = false;
   let fatal = false;
+  /** 応答を挟まずに続いたタイムアウトの回数。基底セッションは遷移と関係なく使えなくなるので、reset でも消さない */
+  let consecutiveTimeouts = 0;
 
   /**
    * 1 バッチ分の prompt を実行する。セッションは必ず destroy する。
-   * タイムアウトは clone できてから数え始める。基底セッションの準備（モデルの読み込みやダウンロード、
-   * ユーザー操作の待ち）は推論の時間ではないので、上限に含めない。
+   * タイムアウトは基底セッションの準備ができてから数え始め、clone と prompt を含める。基底セッションの準備
+   * （モデルの読み込みやダウンロード、ユーザー操作の待ち）は推論の時間ではないので、上限に含めない。
+   * Chrome が裏でモデルを片付けると、clone や prompt が中断にも応じないまま返らなくなるので、
+   * タイムアウトしたらそれらの完了を待たずに見捨てる（待つと順番待ちごと止まるため）。
    * @param {string} input 入力文
-   * @param {{ signal: AbortSignal|null }} timeout 作ったタイムアウト用シグナルを入れて返す
+   * @param {{ signal: AbortSignal|null, cloned: boolean }} timeout 作ったタイムアウト用シグナルと、clone が返ったかを入れて返す
    * @param {AbortSignal} resetSignal reset 用シグナル
    * @returns {Promise<string>}
    */
   async function runPrompt(input, timeout, resetSignal) {
-    const session = await cloneSession();
+    await waitForReady();
+    const timeoutSignal = createTimeoutSignal(timeoutMs);
+    timeout.signal = timeoutSignal;
+    const sessionPromise = cloneSession();
+    /** @type {AiSession|null} */
+    let session = null;
     try {
-      timeout.signal = createTimeoutSignal(timeoutMs);
-      const signal = AbortSignal.any([timeout.signal, resetSignal]);
+      session = await raceAbort(sessionPromise, timeoutSignal);
+      timeout.cloned = true;
+      const signal = AbortSignal.any([timeoutSignal, resetSignal]);
       signal.throwIfAborted();
-      return await session.prompt(input, {
-        responseConstraint: responseSchema,
-        omitResponseConstraintInput: true,
-        signal,
-      });
+      return await raceAbort(
+        session.prompt(input, {
+          responseConstraint: responseSchema,
+          omitResponseConstraintInput: true,
+          signal,
+        }),
+        timeoutSignal,
+      );
     } finally {
-      try {
-        session.destroy();
-      } catch {
-        // destroy の失敗は判定に影響しないので無視する
+      if (session) {
+        destroySession(session);
+      } else {
+        // タイムアウトの後で clone が返ったら、そのセッションも破棄する
+        sessionPromise.then(destroySession, () => {});
       }
     }
   }
@@ -172,20 +222,30 @@ export function createAiQueue({
   async function processBatch(batch, batchGeneration, isMissingRetry) {
     const { input, idMap } = buildBatchInput(batch, maxChars);
     const itemsById = new Map(batch.map((item) => [item.id, item]));
-    /** @type {{ signal: AbortSignal|null }} */
-    const timeout = { signal: null };
+    /** @type {{ signal: AbortSignal|null, cloned: boolean }} */
+    const timeout = { signal: null, cloned: false };
     let responseText;
     try {
       responseText = await runPrompt(input, timeout, resetController.signal);
     } catch (error) {
+      const timedOut = timeout.signal !== null && isTimeoutAbort(timeout.signal);
+      // 基底セッションが使えなくなったかは遷移と関係ないので、reset の後のタイムアウトでも数える
+      if (timedOut) {
+        consecutiveTimeouts += 1;
+        if (!timeout.cloned || consecutiveTimeouts >= 2) {
+          consecutiveTimeouts = 0;
+          onSessionStale();
+        }
+      }
       if (!isCurrent(batchGeneration)) return;
-      if (timeout.signal !== null && isTimeoutAbort(timeout.signal)) {
+      if (timedOut) {
         handleTimeout(batch, batchGeneration);
         return;
       }
       handleFatal(error);
       return;
     }
+    consecutiveTimeouts = 0;
     if (!isCurrent(batchGeneration)) return;
 
     const { verdicts, missing } = parseBatchResponse(responseText, idMap, categoryNames);
