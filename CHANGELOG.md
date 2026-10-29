@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/hazymoon/youtube-comment-filter/compare/v0.5.1...v0.5.2) (2026-10-29)
+
+
+### Bug Fixes
+
+* Shorts で次の動画へ移り続けても、AI の判定が遅れていかないようにする ([#38](https://github.com/hazymoon/youtube-comment-filter/issues/38)) ([3f01429](https://github.com/hazymoon/youtube-comment-filter/commit/3f0142923798f630642329436b74e0fd95a27b0f))
+* タブが休止したあとも、AI の判定が止まったままにならないようにする ([#39](https://github.com/hazymoon/youtube-comment-filter/issues/39)) ([f1718f7](https://github.com/hazymoon/youtube-comment-filter/commit/f1718f7c4941e9eed386321be850ec591972e375))
+
 ## [0.5.1](https://github.com/hazymoon/youtube-comment-filter/compare/v0.5.0...v0.5.1) (2026-10-28)
 
 
