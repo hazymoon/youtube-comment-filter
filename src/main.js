@@ -193,6 +193,7 @@ export function main() {
   });
 
   const queue = createAiQueue({
+    waitForReady: () => lm.waitForReady(),
     cloneSession: () => lm.cloneSession(),
     batchSize: AI_BATCH_SIZE,
     timeoutMs: AI_TIMEOUT_MS,
@@ -213,6 +214,11 @@ export function main() {
       lm.markFailed(error);
       scheduleScan();
       renderBar();
+    },
+    onSessionStale() {
+      // Chrome が裏でモデルを片付けると判定が返らなくなるので、基底セッションを作り直す
+      debugLog('AI の判定が返らないため、基底セッションを作り直します');
+      lm.recreate();
     },
   });
 
