@@ -40,6 +40,7 @@ import {
   EXPANDED_ATTR,
   EXPANDER_CONTENT_ID,
   EXPANDER_SELECTOR,
+  ID_ATTR,
   INTERACTIVE_SELECTOR,
   NAVIGATE_FINISH_EVENT,
   NAVIGATE_START_EVENT,
@@ -199,6 +200,12 @@ export function main() {
     timeoutMs: AI_TIMEOUT_MS,
     maxChars: AI_MAX_CHARS,
     categories: AI_CATEGORIES,
+    // 監視中のコメント欄で判定待ちのままのコメントだけを AI に送る。Shorts で次の動画へ移った直後は前の動画の
+    // 判定待ちのコメントが DOM に残っていて順番待ちに入りうるので、それが消えた後に AI の時間を使わないため
+    isWanted: (id) =>
+      currentThreads().some(
+        (thread) => thread.getAttribute(ID_ATTR) === id && thread.getAttribute(STATE_ATTR) === 'pending',
+      ),
     onVerdict(id, verdict, item) {
       const { needsRescan } = processor.applyVerdict(currentThreads(), id, verdict, item);
       if (needsRescan) scheduleScan();
