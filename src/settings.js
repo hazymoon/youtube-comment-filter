@@ -232,19 +232,20 @@ export function parseStoredOptions(read) {
   const options = {};
   for (const [key, spec] of Object.entries(STORED_OPTION_SPECS)) {
     const value = read(key);
+    let chosen = value;
     if (value === undefined || value === null) {
-      options[key] = spec.defaultValue;
-      continue;
+      chosen = spec.defaultValue;
+    } else {
+      const problem = spec.check(value);
+      if (problem) {
+        // 書いた値と既定値を取り違えないよう、どちらの値かを名指しして並べる
+        const defaultText = spec.defaultLabel ?? JSON.stringify(spec.defaultValue);
+        warnings.push(`値 ${key}: ${problem}。書いた値: ${JSON.stringify(value)}。既定値 ${defaultText} を使います`);
+        chosen = spec.defaultValue;
+      }
     }
-    const problem = spec.check(value);
-    if (problem) {
-      // 書いた値と既定値を取り違えないよう、どちらの値かを名指しして並べる
-      const defaultText = spec.defaultLabel ?? JSON.stringify(spec.defaultValue);
-      warnings.push(`値 ${key}: ${problem}。書いた値: ${JSON.stringify(value)}。既定値 ${defaultText} を使います`);
-      options[key] = spec.defaultValue;
-      continue;
-    }
-    options[key] = spec.copy ? spec.copy(value) : value;
+    // 既定値も写す。config.js の配列をそのまま渡すと、受け取った側の変更が既定値に及ぶため
+    options[key] = spec.copy ? spec.copy(chosen) : chosen;
   }
   return { options: /** @type {StoredOptions} */ (options), warnings };
 }
