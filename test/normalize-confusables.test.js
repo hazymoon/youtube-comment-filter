@@ -50,7 +50,8 @@ test('小文字にするとラテン文字に似なくなる大文字も、大�
 
 test('大文字と小文字で似るラテン文字が違うギリシャ文字は、大文字の形で置き換える', () => {
   // Greek capital nu / omicron / upsilon look like N / O / Y, while lowercase nu / upsilon look like v / u
-  assert.equal(normalizeForMatch('ΝΟ'), 'no');
+  // "ΝO": Greek capital nu + Latin O (an all-Greek word is left as is)
+  assert.equal(normalizeForMatch('ΝO'), 'no');
   assert.equal(normalizeForMatch('ΥES'), 'yes');
 });
 
@@ -58,4 +59,26 @@ test('小文字だけがラテン文字に似る文字は、大文字で書い�
   // Cyrillic capital sha / ghe: only their lowercase forms (ш, г) are in confusables
   assert.equal(normalizeForMatch('ШOW'), 'wow');
   assert.equal(normalizeForMatch('ГED'), 'red');
+});
+
+test('キリル文字・ギリシャ文字だけで書いた語は置き換えない（本物のロシア語・ギリシャ語を英語の NG ワードに当てない）', () => {
+  // "сор" (Russian for "rubbish") is all Cyrillic and must not become "cop"
+  assert.equal(normalizeForMatch('сор'), 'сор');
+  assert.equal(normalizeForMatch('это сор, да'), 'этосорда');
+  assert.equal(compileRules({ ngWords: ['cop'] }).matchWord('это сор'), null);
+});
+
+test('キリル文字だけで書いた NG ワードは、ラテン文字の本文に当たらない', () => {
+  assert.equal(compileRules({ ngWords: ['сор'] }).matchWord('cop'), null);
+});
+
+test('ラテン文字と混ざった語は、記号を挟んでも、日本語の文の中でも置き換える', () => {
+  assert.equal(normalizeForMatch('ѕ.р.а.m'), 'spam');
+  assert.equal(normalizeForMatch('これはѕраmです'), 'これはspamです');
+  // A Russian word beside a mixed word keeps its Cyrillic letters
+  assert.equal(normalizeForMatch('сор ѕраm'), 'сорspam');
+});
+
+test('ラテン文字を含まない日本語の文の中のギリシャ文字は置き換えない', () => {
+  assert.equal(normalizeForMatch('αチーム'), 'αちーむ');
 });

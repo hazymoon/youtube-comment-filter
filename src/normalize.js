@@ -103,12 +103,35 @@ const CONFUSABLE_LETTER_PATTERN = new RegExp(`[${[...CONFUSABLE_LETTER_TO_LATIN.
 
 /**
  * ラテン文字に見えるキリル文字・ギリシャ文字を、見た目の同じラテン文字に置き換える。
- * 大文字と小文字で似るラテン文字が違うので、小文字化の前に呼ぶ。対応表に小文字だけが載る文字（Ш の小文字 ш など）の大文字も拾うため、小文字化の後にももう一度呼ぶ。
+ * 語の文字体系は見ずにすべて置き換える。NG ワードの照合では foldMixedScriptLetters を通して、ラテン文字と混ざった語にだけ使う。
  * @param {string} text NFKC 正規化済みの文字列
  * @returns {string} 置き換えた文字列。対応表にない文字（日本語・ラテン文字など）はそのまま残る
  */
 export function replaceConfusableLetters(text) {
   return text.replace(CONFUSABLE_LETTER_PATTERN, (ch) => CONFUSABLE_LETTER_TO_LATIN.get(ch) ?? ch);
+}
+
+// A token is a whitespace-delimited run; punctuation inside it (e.g. "ѕ.р.а.m") stays part of the token.
+const TOKEN_PATTERN = /\S+/gu;
+const LATIN_LETTER_PATTERN = /[\p{Script=Latin}&&\p{L}]/v;
+const CYRILLIC_OR_GREEK_LETTER_PATTERN = /[[\p{Script=Cyrillic}\p{Script=Greek}]&&\p{L}]/v;
+
+/**
+ * ラテン文字とキリル文字・ギリシャ文字が混ざった語だけ、ラテン文字に見える文字をラテン文字にして小文字化する。
+ * 語は空白で区切った単位（記号を挟んだ「ѕ.р.а.m」も 1 語）。
+ * キリル文字・ギリシャ文字だけの語（本物のロシア語・ギリシャ語）は置き換えない。置き換えると、ロシア語の「сор」が「cop」になって
+ * 英語の NG ワードに当たり、逆にロシア語で書いた NG ワードが英語の本文に当たるため（UTS #39 の文字体系の混在の考え方）。
+ * そのため、すべての文字をキリル文字にした書き方（ЅСАМ など）や、1 文字ずつ空白で区切った書き方はすり抜ける。
+ * 置き換えは小文字化の前後で 2 回行う。大文字と小文字で似るラテン文字が違う文字（Ν と ν）と、対応表に小文字だけが載る文字（Ш の小文字 ш）の両方を拾うため。
+ * @param {string} text NFKC 正規化済みの本文
+ * @returns {string} 小文字化した本文
+ */
+function foldMixedScriptLetters(text) {
+  return text.replace(TOKEN_PATTERN, (token) =>
+    LATIN_LETTER_PATTERN.test(token) && CYRILLIC_OR_GREEK_LETTER_PATTERN.test(token)
+      ? replaceConfusableLetters(replaceConfusableLetters(token).toLowerCase())
+      : token.toLowerCase(),
+  );
 }
 
 // Katakana range that has a hiragana counterpart at -0x60 (ァ..ヶ, ヽ, ヾ).
@@ -126,7 +149,7 @@ const COMBINING_MARK_PATTERN = /\p{Mn}/gu;
 
 /**
  * NG ワードの文字列照合用に本文を正規化する。
- * NFKC → ラテン文字に見えるキリル文字・ギリシャ文字をラテン文字に → 小文字化 → もう一度ラテン文字に → カタカナをひらがなに → 記号・空白・絵文字・書式文字を除去 → NFC → 結合文字を除去、の順に行う。
+ * NFKC → 小文字化（ラテン文字と混ざった語では、ラテン文字に見えるキリル文字・ギリシャ文字をラテン文字に）→ カタカナをひらがなに → 記号・空白・絵文字・書式文字を除去 → NFC → 結合文字を除去、の順に行う。
  * NFKC はスペーシング濁点（゛）を「空白 + 結合濁点」に分けるので、空白を除いた後に NFC で前の文字と合成し直す
  * （「は゛か」を「ばか」と照合するため）。合成できずに残った結合文字（打ち消し線など）は除く。
  * 長音符「ー」は語の一部なので残す（「ばーか」と「ばか」を同一視しない）。
@@ -135,7 +158,7 @@ const COMBINING_MARK_PATTERN = /\p{Mn}/gu;
  * @returns {string} 正規化した本文。絵文字だけの本文などは空文字になる
  */
 export function normalizeForMatch(text) {
-  return replaceConfusableLetters(replaceConfusableLetters(toNfkc(text)).toLowerCase())
+  return foldMixedScriptLetters(toNfkc(text))
     .replace(KATAKANA_TO_HIRAGANA_PATTERN, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60))
     .replace(MATCH_NOISE_PATTERN, '')
     .normalize('NFC')
