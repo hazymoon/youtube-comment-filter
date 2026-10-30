@@ -8,6 +8,7 @@ import { BAR_ID, BLOCK_BUTTON_CLASS, HEADER_AUTHOR_SELECTOR, REASON_STRIP_CLASS 
  * @typedef {object} CountBar
  * @property {HTMLElement} element バーの要素
  * @property {HTMLElement} button 開閉ボタン。NG 登録で表示中のコメントが無くなったときのフォーカスの移し先にも使う（focus.js）
+ * @property {HTMLElement} reasonsButton 「理由を表示」のボタン。理由の表示を閉じて帯が消えるときのフォーカスの移し先にも使う
  * @property {(state: { open: boolean, countText: string, statusText: string, visible: boolean, reasons?: boolean }) => void} update
  *   表示を更新する。変わった部分だけ書き換える。reasons は隠したコメントの理由を表示しているか
  * @property {(commentsEl: Element) => void} attach コメント欄の直前の兄弟として差し込む（差し込み済みなら何もしない）
@@ -66,6 +67,7 @@ export function createCountBar({ doc, onToggle, onToggleReasons = () => {} }) {
   return {
     element,
     button,
+    reasonsButton,
     update({ open, countText, statusText, visible, reasons = false }) {
       setText(button, open ? 'コメントを隠す' : 'コメントを表示');
       button.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -207,4 +209,31 @@ export function isReasonStripMutation(record) {
   return Array.from(record.addedNodes).every(
     (node) => node?.nodeType === 1 && node.classList?.contains?.(REASON_STRIP_CLASS) === true,
   );
+}
+
+/**
+ * キー入力が、理由の帯の上で帯を押す Enter・Space か。そうなら帯を返す。
+ * 本文の操作（main.js の onDocumentKeydown）と同じく、修飾キー付き・押しっぱなしの繰り返し・変換中のキーは除く。
+ * 帯を押すキーが YouTube のショートカット（Space の再生・一時停止など）に届かないよう、呼び出し側で既定の動きと伝播を止めて
+ * 帯を押したことにするために使う。
+ * @param {{ key: string, target: any, altKey: boolean, ctrlKey: boolean, metaKey: boolean, shiftKey: boolean, repeat: boolean, isComposing: boolean }} event キー入力
+ * @returns {any|null} 帯の要素
+ */
+export function reasonStripOfKeyEvent(event) {
+  if (event.key !== 'Enter' && event.key !== ' ') return null;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat || event.isComposing)
+    return null;
+  const target = event.target;
+  return target?.nodeType === 1 && target.classList?.contains?.(REASON_STRIP_CLASS) === true ? target : null;
+}
+
+/**
+ * 理由の帯にフォーカスがあるとき、フォーカスを移し先へ移す。理由の表示を閉じると帯が display:none になり、
+ * フォーカスが body に落ちてキーボードで元の位置に戻れなくなるため（focus.js の restoreFocusAfterHide と同じ考え方）。
+ * @param {any} activeElement いまフォーカスのある要素
+ * @param {{ focus: (options?: FocusOptions) => void }} fallback 移し先（件数バーの「理由を表示」のボタン）
+ */
+export function moveFocusOffReasonStrip(activeElement, fallback) {
+  if (activeElement?.nodeType !== 1 || activeElement.classList?.contains?.(REASON_STRIP_CLASS) !== true) return;
+  fallback.focus({ preventScroll: true });
 }

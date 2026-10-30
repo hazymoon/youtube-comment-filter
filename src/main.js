@@ -51,6 +51,8 @@ import {
   ensureReasonStrip,
   isBlockButtonInsertion,
   isReasonStripMutation,
+  moveFocusOffReasonStrip,
+  reasonStripOfKeyEvent,
   syncBodyControl,
 } from './ui.js';
 
@@ -261,6 +263,8 @@ export function main() {
     onToggleReasons() {
       // 状態はページの中だけに持つ（保存しない）
       const reasons = doc.documentElement.toggleAttribute(REASONS_ATTR);
+      // 閉じると帯が消えるので、帯にフォーカスがあれば先に「理由を表示」のボタンへ移す
+      if (!reasons) moveFocusOffReasonStrip(doc.activeElement, bar.reasonsButton);
       for (const thread of currentThreads()) {
         // 一時表示は理由の表示を閉じたら戻す（次に開いたときに前の一時表示が残らないように）
         if (!reasons) thread.removeAttribute(REVEALED_ATTR);
@@ -579,6 +583,14 @@ export function main() {
    * @param {KeyboardEvent} event キー入力
    */
   function onDocumentKeydown(event) {
+    // 理由の帯を押す Enter・Space も、YouTube のショートカットに渡さず帯を押したことにする
+    const strip = reasonStripOfKeyEvent(event);
+    if (strip) {
+      event.preventDefault();
+      event.stopPropagation();
+      onReasonClick(strip);
+      return;
+    }
     if (event.key !== 'Enter' && event.key !== ' ') return;
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat || event.isComposing) return;
     const target = /** @type {any} */ (event.target);
