@@ -54,6 +54,8 @@ function syncThreadAttribute(thread, name, value) {
  */
 export function applyThreadState(thread, state, reason, detail) {
   if (thread.getAttribute(STATE_ATTR) !== state) thread.setAttribute(STATE_ATTR, state);
+  // 一時表示は隠しているコメントに限る。表示などに変わったら外し、後でまた隠したときに開いたまま出さない
+  if (state !== 'hidden' && thread.hasAttribute(REVEALED_ATTR)) thread.removeAttribute(REVEALED_ATTR);
   syncThreadAttribute(thread, REASON_ATTR, reason);
   syncThreadAttribute(thread, DETAIL_ATTR, detail);
 }
