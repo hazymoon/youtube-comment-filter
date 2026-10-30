@@ -194,12 +194,14 @@ function checkStoredCategories(value) {
  * - previewChars: 1 以上の整数（0 では表示するコメントの文頭も見えない）
  * - revealDelayMs: 0 以上の整数（ミリ秒。0 で待たずに見せ始める）
  * - revealMsPerLine: 1 以上の整数（ミリ秒）
- * @type {Record<keyof StoredOptions, { defaultValue: unknown, check: (value: unknown) => string|null, copy?: (value: any) => unknown }>}
+ * @type {Record<keyof StoredOptions, { defaultValue: unknown, defaultLabel?: string, check: (value: unknown) => string|null, copy?: (value: any) => unknown }>}
  */
 const STORED_OPTION_SPECS = {
   aiEnabled: { defaultValue: AI_ENABLED, check: checkStoredBoolean },
   aiCategories: {
     defaultValue: AI_CATEGORIES,
+    // 既定のカテゴリは長いので、警告には中身でなく定数の名前を出す
+    defaultLabel: '（config.js の AI_CATEGORIES）',
     check: checkStoredCategories,
     copy: (categories) => categories.map(({ name, description }) => ({ name, description })),
   },
@@ -236,7 +238,9 @@ export function parseStoredOptions(read) {
     }
     const problem = spec.check(value);
     if (problem) {
-      warnings.push(`値 ${key}: ${problem}。既定値を使います: ${JSON.stringify(value)}`);
+      // 書いた値と既定値を取り違えないよう、どちらの値かを名指しして並べる
+      const defaultText = spec.defaultLabel ?? JSON.stringify(spec.defaultValue);
+      warnings.push(`値 ${key}: ${problem}。書いた値: ${JSON.stringify(value)}。既定値 ${defaultText} を使います`);
       options[key] = spec.defaultValue;
       continue;
     }
