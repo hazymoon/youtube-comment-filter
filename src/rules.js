@@ -286,10 +286,11 @@ const ALWAYS_ALLOWED_LINK_DOMAINS = ['youtube.com', 'youtu.be'];
 const MAX_REDIRECT_UNWRAP = 5;
 
 /**
- * /redirect の入れ子が MAX_REDIRECT_UNWRAP を超えたときに返すホスト名の代わり。許可リストのどのドメインにも
- * 一致しない形なので許可外になり、judgeByRules の detail（link:www.youtube.com/redirect）で理由が分かる
+ * 飛び先を確かめられない /redirect（入れ子が MAX_REDIRECT_UNWRAP を超えた、q が無い・読めない）に返すホスト名の代わり。
+ * 許可リストのどのドメインにも一致しない形なので許可外になり、judgeByRules の detail（link:www.youtube.com/redirect）で
+ * 理由が分かる
  */
-const REDIRECT_TOO_DEEP_HOST = 'www.youtube.com/redirect';
+const UNVERIFIED_REDIRECT_HOST = 'www.youtube.com/redirect';
 
 /**
  * ホスト名を照合用の形にする（小文字・末尾のドットを除く）。URL の hostname は小文字・punycode になっている。
@@ -314,7 +315,8 @@ function isHostInDomain(host, domain) {
  * 本文のリンクの飛び先のホスト名を求める。YouTube の外部リンクは /redirect?…&q=<URL> になっているので、q の URL を見る
  * （docs/dom-structure.md「本文のリンク」）。相対パスは YouTube 内なので www.youtube.com になる。
  * q が複数あるときは全部見る（先頭だけを見ると、許可したドメインの q を前に置いて許可外の q をすり抜けさせられるため）。
- * 壊れた URL・q の無い /redirect・ホスト名の無いリンク（mailto: など）は判定しないので含めない。
+ * 壊れた URL・ホスト名の無いリンク（mailto: など）は判定しないので含めない。飛び先を確かめられない /redirect は
+ * UNVERIFIED_REDIRECT_HOST を含める（hostsOfUrl）。
  * @param {unknown} href リンクの href
  * @returns {string[]} 照合用の形のホスト名
  */
@@ -338,22 +340,28 @@ function linkTargetHosts(href) {
 function hostsOfUrl(url, unwrapped) {
   const host = normalizeLinkHost(url.hostname);
   if (url.pathname !== '/redirect' || !isHostInDomain(host, 'youtube.com')) return host === '' ? [] : [host];
-  // 上限を超えて入れ子になった /redirect は、飛び先を確かめられないが許可外として扱う（REDIRECT_TOO_DEEP_HOST）。
+  // 上限を超えて入れ子になった /redirect は、飛び先を確かめられないが許可外として扱う（UNVERIFIED_REDIRECT_HOST）。
   // 壊れた URL を判定しないのは、利用者が書いたリンクの書き損じを隠さないためだが、深い入れ子は判定を
   // すり抜けるために作られたものとみなせるので、隠さない側に倒すとそのまま抜け道になる
-  if (unwrapped >= MAX_REDIRECT_UNWRAP) return [REDIRECT_TOO_DEEP_HOST];
+  if (unwrapped >= MAX_REDIRECT_UNWRAP) return [UNVERIFIED_REDIRECT_HOST];
+  // q が無い・空・絶対 URL として読めない・ホスト名が無い /redirect も許可外として扱う。YouTube 自身が作る /redirect は
+  // 必ず読める q（http(s) の絶対 URL）を持つので、読めないものは手で作ったものとみなせる。判定しないと、
+  // ブラウザやリダイレクトの先が解釈できる形（//evil.example など）で許可外のドメインへ飛ばせてしまう
+  const targets = url.searchParams.getAll('q');
+  if (targets.length === 0) return [UNVERIFIED_REDIRECT_HOST];
   /** @type {string[]} */
   const hosts = [];
-  for (const target of url.searchParams.getAll('q')) {
-    if (target === '') continue;
+  for (const target of targets) {
     let next;
     try {
       // q は絶対 URL。相対として解釈すると YouTube 内に化けて許可されるので、基準の URL を渡さない
       next = new URL(target);
     } catch {
+      hosts.push(UNVERIFIED_REDIRECT_HOST);
       continue;
     }
-    hosts.push(...hostsOfUrl(next, unwrapped + 1));
+    const nextHosts = hostsOfUrl(next, unwrapped + 1);
+    hosts.push(...(nextHosts.length === 0 ? [UNVERIFIED_REDIRECT_HOST] : nextHosts));
   }
   return hosts;
 }
