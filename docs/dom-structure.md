@@ -141,4 +141,4 @@ ytd-shorts
 - Shorts では、画面に出る投稿者の行（`yt-reel-channel-bar-view-model`）の文字列はハンドルで、表示名は概要欄のパネルの見出しにだけあった。概要欄のパネルは閉じていても（`visibility="ENGAGEMENT_PANEL_VISIBILITY_HIDDEN"`）DOM にあり、次の Shorts へ移ると中身が入れ替わった。`#channel-name` の textContent はツールチップの分も含んで表示名が 2 回入るので、`yt-formatted-string#text` から読む
 - Shorts の `ytd-reel-video-renderer` は 1 つだけで、次の Shorts へ移っても同じ要素が使い回された
 - 動画ページで関連動画へ移ると、`ytd-watch-flexy` の `video-id` 属性と投稿者の要素は同じ時点（100 ミリ秒ごとに見て同じ回）で新しい動画のものに変わった。それより前は URL だけが新しい動画を指し、投稿者は前の動画のままだった。投稿者は `video-id` が URL の `v=` と一致するときだけ読む
-- Shorts で次の動画へ移ると、URL と `ytd-reel-video-renderer` の `.data.command.reelWatchEndpoint.videoId` が先に変わり（`yt-navigate-finish` の直前）、投稿者の行と概要欄の見出しは 100〜900 ミリ秒ほど遅れて変わった（2 回の測定）。投稿者の要素にも概要欄のデータにも動画 ID は無く、読んだ投稿者がいまの動画のものかは確かめられない。遷移の直後は前の動画の投稿者を読みうるので、投稿者が変わったら判定し直す
+- Shorts で次の動画へ移ると、URL と `ytd-reel-video-renderer` の `.data.command.reelWatchEndpoint.videoId` が先に変わり（`yt-navigate-finish` の直前）、投稿者の行と概要欄の見出しは 100〜900 ミリ秒ほど遅れて変わった（2 回の測定）。投稿者の要素にも概要欄のデータにも動画 ID は無く、読んだ投稿者がいまの動画のものかは確かめられない。遷移の直後は前の動画の投稿者を読みうる。投稿者の要素はコメント欄の外にあり、変化がコメント欄の監視に届かないので、document の変化のたびに投稿者を読み直し、前のスキャンが判定に使ったものと違えばスキャンして判定し直す
