@@ -278,6 +278,12 @@ const ALWAYS_ALLOWED_LINK_DOMAINS = ['youtube.com', 'youtu.be'];
 const MAX_REDIRECT_UNWRAP = 5;
 
 /**
+ * /redirect の入れ子が MAX_REDIRECT_UNWRAP を超えたときに返すホスト名の代わり。許可リストのどのドメインにも
+ * 一致しない形なので許可外になり、judgeByRules の detail（link:www.youtube.com/redirect）で理由が分かる
+ */
+const REDIRECT_TOO_DEEP_HOST = 'www.youtube.com/redirect';
+
+/**
  * ホスト名を照合用の形にする（小文字・末尾のドットを除く）。URL の hostname は小文字・punycode になっている。
  * @param {string} host ホスト名
  * @returns {string}
@@ -311,9 +317,13 @@ function linkTargetHost(href) {
   } catch {
     return null;
   }
-  for (let i = 0; i < MAX_REDIRECT_UNWRAP; i += 1) {
+  for (let unwrapped = 0; ; unwrapped += 1) {
     const host = normalizeLinkHost(url.hostname);
     if (url.pathname !== '/redirect' || !isHostInDomain(host, 'youtube.com')) return host === '' ? null : host;
+    // 上限を超えて入れ子になった /redirect は、飛び先を確かめられないが許可外として扱う（REDIRECT_TOO_DEEP_HOST）。
+    // 壊れた URL を判定しないのは、利用者が書いたリンクの書き損じを隠さないためだが、深い入れ子は判定を
+    // すり抜けるために作られたものとみなせるので、隠さない側に倒すとそのまま抜け道になる
+    if (unwrapped >= MAX_REDIRECT_UNWRAP) return REDIRECT_TOO_DEEP_HOST;
     const target = url.searchParams.get('q');
     if (!target) return null;
     try {
@@ -323,7 +333,6 @@ function linkTargetHost(href) {
       return null;
     }
   }
-  return null;
 }
 
 /**
