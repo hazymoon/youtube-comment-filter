@@ -136,6 +136,28 @@ function storedIntegerAtLeast(min) {
 }
 
 /**
+ * 値が下限以上・上限以下の整数かを確かめる関数を作る。
+ * @param {number} min 下限（含む）
+ * @param {number} max 上限（含む）
+ * @returns {(value: unknown) => string|null} 不正なら理由、正しければ null を返す関数
+ */
+function storedIntegerBetween(min, max) {
+  return (value) =>
+    Number.isInteger(value) && Number(value) >= min && Number(value) <= max
+      ? null
+      : `${min} 以上 ${max} 以下の整数で書いてください`;
+}
+
+/**
+ * setTimeout が受け付ける待ち時間の上限（ミリ秒。32 ビットの符号付き整数の最大値）。
+ * 超える値はタイマーの範囲外で、すぐ発火するなど、指定どおりに待たない（Node では 1 ミリ秒に丸められた）
+ */
+const MAX_STORED_TIMEOUT_MS = 2147483647;
+
+/** aiBatchSize の上限。まとめた判定の所要時間と正確さを計測したのが 10 件までのため（docs/spike.md） */
+const MAX_STORED_BATCH_SIZE = 10;
+
+/**
  * 値が AI のカテゴリの配列かを確かめる。
  * @param {unknown} value 値
  * @returns {string|null} 不正なら理由、正しければ null
@@ -164,8 +186,9 @@ function checkStoredCategories(value) {
  * - aiEnabled / exemptOwner / exemptPinned / exemptVerified / debug: 真偽値
  * - aiCategories: { name: 空でない文字列, description: 文字列 } を 1 つ以上並べた配列で、name は重複しない。要素が 1 つでも不正なら全体を
  *   既定値に戻す（不正な要素だけを捨てると、利用者が隠したいカテゴリが黙って判定から抜けるため）
- * - aiBatchSize: 1 以上の整数（1 で 1 件ずつ判定する）
- * - aiTimeoutMs: 1 以上の整数（ミリ秒。0 以下では判定がすぐ打ち切られる）
+ * - aiBatchSize: 1 以上 10 以下の整数（1 で 1 件ずつ判定する。上限は docs/spike.md で計測した件数）
+ * - aiTimeoutMs: 1 以上 2147483647 以下の整数（ミリ秒。0 以下では判定がすぐ打ち切られる。上限は setTimeout の上限）
+ * 上限は、超えると動きが壊れるか計測していない範囲に入るキーにだけ付ける。
  * - aiMaxChars: 1 以上の整数（0 では AI に本文が渡らない）
  * - aiCacheMaxEntries: 1 以上の整数（0 では判定結果を保存できない）
  * - previewChars: 1 以上の整数（0 では表示するコメントの文頭も見えない）
@@ -180,8 +203,8 @@ const STORED_OPTION_SPECS = {
     check: checkStoredCategories,
     copy: (categories) => categories.map(({ name, description }) => ({ name, description })),
   },
-  aiBatchSize: { defaultValue: AI_BATCH_SIZE, check: storedIntegerAtLeast(1) },
-  aiTimeoutMs: { defaultValue: AI_TIMEOUT_MS, check: storedIntegerAtLeast(1) },
+  aiBatchSize: { defaultValue: AI_BATCH_SIZE, check: storedIntegerBetween(1, MAX_STORED_BATCH_SIZE) },
+  aiTimeoutMs: { defaultValue: AI_TIMEOUT_MS, check: storedIntegerBetween(1, MAX_STORED_TIMEOUT_MS) },
   aiMaxChars: { defaultValue: AI_MAX_CHARS, check: storedIntegerAtLeast(1) },
   aiCacheMaxEntries: { defaultValue: AI_CACHE_MAX_ENTRIES, check: storedIntegerAtLeast(1) },
   previewChars: { defaultValue: PREVIEW_CHARS, check: storedIntegerAtLeast(1) },

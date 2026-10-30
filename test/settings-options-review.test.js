@@ -23,3 +23,21 @@ test('aiCategories の name が重複していたら既定値に戻して警告�
   assert.equal(result.warnings.length, 1);
   assert.match(result.warnings[0], /aiCategories/);
 });
+
+test('aiTimeoutMs は setTimeout の上限（2147483647）までを使い、超えたら既定値に戻して警告する', () => {
+  assert.equal(parseOne('aiTimeoutMs', 2147483647).options.aiTimeoutMs, 2147483647);
+  assert.deepEqual(parseOne('aiTimeoutMs', 2147483647).warnings, []);
+  const result = parseOne('aiTimeoutMs', 2147483648);
+  assert.notEqual(result.options.aiTimeoutMs, 2147483648);
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0], /aiTimeoutMs/);
+});
+
+test('aiBatchSize は 10 までを使い、超えたら既定値に戻して警告する', () => {
+  assert.equal(parseOne('aiBatchSize', 10).options.aiBatchSize, 10);
+  assert.deepEqual(parseOne('aiBatchSize', 10).warnings, []);
+  const result = parseOne('aiBatchSize', 11);
+  assert.notEqual(result.options.aiBatchSize, 11);
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0], /aiBatchSize/);
+});
