@@ -17,7 +17,7 @@ export function toNfkc(text) {
 // Date: 2026-08-06）。そこから、キリル文字・ギリシャ文字の 1 文字がラテン小文字（a〜z）の 1 文字に対応する行のうち、
 // NFKC と小文字化を経ても形の変わらない小文字だけを載せる。大文字は小文字化した後にこの表で引くので載せない。
 // 数字や記号との置き換え（0→o など）は対象外。
-// Keys are escaped because the glyphs are visually indistinguishable from their Latin values.
+// Each key carries its Unicode name because the glyphs are visually indistinguishable from their Latin values.
 const CONFUSABLE_LETTER_TO_LATIN = new Map([
   ['α', 'a'], // GREEK SMALL LETTER ALPHA
   ['а', 'a'], // CYRILLIC SMALL LETTER A
