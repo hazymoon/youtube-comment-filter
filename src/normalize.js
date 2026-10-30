@@ -103,7 +103,7 @@ const CONFUSABLE_LETTER_PATTERN = new RegExp(`[${[...CONFUSABLE_LETTER_TO_LATIN.
 
 /**
  * ラテン文字に見えるキリル文字・ギリシャ文字を、見た目の同じラテン文字に置き換える。
- * 大文字と小文字で似るラテン文字が違うので、小文字化より前に呼ぶ。
+ * 大文字と小文字で似るラテン文字が違うので、小文字化の前に呼ぶ。対応表に小文字だけが載る文字（Ш の小文字 ш など）の大文字も拾うため、小文字化の後にももう一度呼ぶ。
  * @param {string} text NFKC 正規化済みの文字列
  * @returns {string} 置き換えた文字列。対応表にない文字（日本語・ラテン文字など）はそのまま残る
  */
@@ -126,7 +126,7 @@ const COMBINING_MARK_PATTERN = /\p{Mn}/gu;
 
 /**
  * NG ワードの文字列照合用に本文を正規化する。
- * NFKC → ラテン文字に見えるキリル文字・ギリシャ文字をラテン文字に → 小文字化 → カタカナをひらがなに → 記号・空白・絵文字・書式文字を除去 → NFC → 結合文字を除去、の順に行う。
+ * NFKC → ラテン文字に見えるキリル文字・ギリシャ文字をラテン文字に → 小文字化 → もう一度ラテン文字に → カタカナをひらがなに → 記号・空白・絵文字・書式文字を除去 → NFC → 結合文字を除去、の順に行う。
  * NFKC はスペーシング濁点（゛）を「空白 + 結合濁点」に分けるので、空白を除いた後に NFC で前の文字と合成し直す
  * （「は゛か」を「ばか」と照合するため）。合成できずに残った結合文字（打ち消し線など）は除く。
  * 長音符「ー」は語の一部なので残す（「ばーか」と「ばか」を同一視しない）。
@@ -135,8 +135,7 @@ const COMBINING_MARK_PATTERN = /\p{Mn}/gu;
  * @returns {string} 正規化した本文。絵文字だけの本文などは空文字になる
  */
 export function normalizeForMatch(text) {
-  return replaceConfusableLetters(toNfkc(text))
-    .toLowerCase()
+  return replaceConfusableLetters(replaceConfusableLetters(toNfkc(text)).toLowerCase())
     .replace(KATAKANA_TO_HIRAGANA_PATTERN, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60))
     .replace(MATCH_NOISE_PATTERN, '')
     .normalize('NFC')

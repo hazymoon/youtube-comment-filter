@@ -53,3 +53,9 @@ test('大文字と小文字で似るラテン文字が違うギリシャ文字�
   assert.equal(normalizeForMatch('ΝΟ'), 'no');
   assert.equal(normalizeForMatch('ΥES'), 'yes');
 });
+
+test('小文字だけがラテン文字に似る文字は、大文字で書いても小文字化した後に置き換える', () => {
+  // Cyrillic capital sha / ghe: only their lowercase forms (ш, г) are in confusables
+  assert.equal(normalizeForMatch('ШOW'), 'wow');
+  assert.equal(normalizeForMatch('ГED'), 'red');
+});
