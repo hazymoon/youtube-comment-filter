@@ -10,7 +10,7 @@ import { directChildById, extractComment, findOwnExpanderContent, findOwnViewMod
 import { restoreFocusAfterHide } from './focus.js';
 import { createLanguageModelController } from './lm.js';
 import { createNavigationState, pageKindFromPathname } from './navigation.js';
-import { readVideoOwner } from './owner.js';
+import { readVideoOwner, sameVideoOwner } from './owner.js';
 import {
   ALLOW_USERS_VALUE_KEY,
   NG_USERS_VALUE_KEY,
@@ -180,6 +180,12 @@ export function main() {
    * @type {Element|null}
    */
   let pendingFocusThread = null;
+  /**
+   * 前のスキャンが判定に使った動画の投稿者。投稿者の要素はコメント欄の外にあり、変化がコメント欄の監視に届かないので、
+   * document の変化のたびに読み直してこれと比べ、変わっていたらスキャンする（rescanIfVideoOwnerChanged）
+   * @type {import('./rules.js').VideoOwner|null}
+   */
+  let scannedVideoOwner = null;
 
   const lm = createLanguageModelController({
     categories: options.aiCategories,
@@ -199,7 +205,10 @@ export function main() {
     getAiMode: () => lm.getState().mode,
     debugLog,
     onShown: (thread) => decorateThread(thread),
-    getVideoOwner: () => readVideoOwner(doc, currentPageKind(), location.href),
+    getVideoOwner() {
+      scannedVideoOwner = readVideoOwner(doc, currentPageKind(), location.href);
+      return scannedVideoOwner;
+    },
   });
 
   const queue = createAiQueue({
@@ -400,11 +409,22 @@ export function main() {
         setTimeout(() => {
           pending = false;
           revalidateComments();
+          rescanIfVideoOwnerChanged();
         }, SCAN_DELAY_MS);
       });
       documentObserver.observe(doc.documentElement, { childList: true, subtree: true });
     }
     scheduleScan();
+  }
+
+  /**
+   * document の変化を受けて動画の投稿者を読み直し、前のスキャンが判定に使ったものと違えばスキャンを予約する。
+   * Shorts では投稿者の要素が遷移より遅れて変わるので（docs/dom-structure.md「動画の投稿者」）、前の動画の投稿者で
+   * 判定したコメントを、コメント欄に変化が無くても判定し直すため。
+   */
+  function rescanIfVideoOwnerChanged() {
+    if (!commentsEl || !isTargetPage()) return;
+    if (!sameVideoOwner(readVideoOwner(doc, currentPageKind(), location.href), scannedVideoOwner)) scheduleScan();
   }
 
   /**

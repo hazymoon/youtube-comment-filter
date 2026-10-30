@@ -6,7 +6,7 @@
 import { countStates, decideState } from './decide.js';
 import { extractComment, isInsideHiddenThread } from './dom.js';
 import { hashString } from './hash.js';
-import { readCommentAuthorDisplayName } from './owner.js';
+import { readCommentAuthorDisplayName, sameVideoOwner } from './owner.js';
 import { judgeByRules, judgeExemption } from './rules.js';
 import { EXEMPTION_ATTR, EXPANDED_ATTR, HASH_ATTR, ID_ATTR, REASON_ATTR, STATE_ATTR, THREAD_TAG } from './selectors.js';
 
@@ -119,7 +119,8 @@ export function createThreadProcessor({
   /**
    * ルールか動画の投稿者が変わった回数。thread ごとに、判定したときの rulesVersion を judgedRulesVersion に持つ。
    * 動画の投稿者はルールと同じくコメントの外から判定を変えるので、変わったら確定済みのコメントも判定し直す
-   * （Shorts では遷移の直後に前の動画の投稿者を読みうるため。owner.js の readVideoOwner）
+   * （Shorts では遷移の直後に前の動画の投稿者を読みうるため。owner.js の readVideoOwner）。
+   * 投稿者の要素はコメント欄の外にあるので、変わったときのスキャンは main.js の rescanIfVideoOwnerChanged が起こす
    */
   let rulesVersion = 0;
   /** @type {WeakMap<Element, number>} */
@@ -132,7 +133,7 @@ export function createThreadProcessor({
    */
   function refreshVideoOwner() {
     const next = getVideoOwner() ?? null;
-    if (next?.handle === videoOwner?.handle && next?.displayName === videoOwner?.displayName) return;
+    if (sameVideoOwner(next, videoOwner)) return;
     debugLog('動画の投稿者', next?.handle ?? null, next?.displayName ?? null);
     videoOwner = next;
     rulesVersion += 1;

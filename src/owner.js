@@ -43,7 +43,7 @@ function readOwnerIn(root, handleSelector, nameSelector) {
  * いまの動画の投稿者を読む。読めないときは null（呼び出し側はなりすましの判定をしない）。
  * 動画ページでは、遷移の途中に前の動画の投稿者が残るので、ytd-watch-flexy の video-id が URL の動画と一致するときだけ読む。
  * Shorts では投稿者の要素に動画 ID が無く確かめられないので、そのまま読む（遷移の直後は前の動画の投稿者を返しうる。
- * 投稿者が変わったら scanner.js が判定し直す）。docs/dom-structure.md「動画の投稿者」
+ * main.js が document の変化のたびに読み直し、変わっていたらスキャンして scanner.js が判定し直す）。docs/dom-structure.md「動画の投稿者」
  * @param {any} doc document
  * @param {import('./navigation.js').PageKind|null} pageKind ページの種類
  * @param {string} href location.href
@@ -60,6 +60,16 @@ export function readVideoOwner(doc, pageKind, href) {
     return readOwnerIn(doc?.querySelector?.(SHORTS_TAG), SHORTS_OWNER_HANDLE_SELECTOR, SHORTS_OWNER_NAME_SELECTOR);
   }
   return null;
+}
+
+/**
+ * 2 つの動画の投稿者（readVideoOwner の結果）が同じか。読むたびに別のオブジェクトになるので、値で比べる。
+ * @param {import('./rules.js').VideoOwner|null} a 投稿者
+ * @param {import('./rules.js').VideoOwner|null} b 投稿者
+ * @returns {boolean}
+ */
+export function sameVideoOwner(a, b) {
+  return (a ?? null) === (b ?? null) || (a?.handle === b?.handle && a?.displayName === b?.displayName);
 }
 
 /**
