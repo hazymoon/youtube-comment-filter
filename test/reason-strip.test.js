@@ -6,7 +6,6 @@ import { createThreadProcessor } from '../src/scanner.js';
 import {
   AUTHOR_LINK_SELECTOR,
   CONTENT_TEXT_SELECTOR,
-  DETAIL_ATTR,
   REASON_STRIP_CLASS,
   REASONS_ATTR,
   REVEALED_ATTR,
@@ -267,11 +266,11 @@ test('ルールで隠した thread に、judgeByRules の detail を記録する
   const kept = makeThread('@trent', 'こんにちは').thread;
   processor.processThreads([user, word, kept]);
   assert.equal(user.getAttribute(STATE_ATTR), 'hidden');
-  assert.equal(user.getAttribute(DETAIL_ATTR), 'handle');
+  assert.equal(processor.detailOf(user), 'handle');
   assert.equal(word.getAttribute(STATE_ATTR), 'hidden');
-  assert.equal(word.getAttribute(DETAIL_ATTR), 'spam');
+  assert.equal(processor.detailOf(word), 'spam');
   assert.equal(kept.getAttribute(STATE_ATTR), 'shown');
-  assert.equal(kept.getAttribute(DETAIL_ATTR), null);
+  assert.equal(processor.detailOf(kept), null);
 });
 
 test('AI で隠した thread に、キャッシュと AI の判定のカテゴリを記録し、判定待ちには記録しない', () => {
@@ -288,17 +287,17 @@ test('AI で隠した thread に、キャッシュと AI の判定のカテゴ�
   const unresolved = makeThread('@unresolved', '本文').thread;
   processor.processThreads([cached, fresh, unresolved]);
   assert.equal(cached.getAttribute(STATE_ATTR), 'hidden');
-  assert.equal(cached.getAttribute(DETAIL_ATTR), '人格攻撃・侮辱');
+  assert.equal(processor.detailOf(cached), '人格攻撃・侮辱');
   assert.equal(fresh.getAttribute(STATE_ATTR), 'pending');
-  assert.equal(fresh.getAttribute(DETAIL_ATTR), null);
+  assert.equal(processor.detailOf(fresh), null);
 
   processor.applyVerdict([fresh], 'id-@fresh', { hide: true, category: '暴言' }, { id: 'id-@fresh', text: '本文' });
   assert.equal(fresh.getAttribute(STATE_ATTR), 'hidden');
-  assert.equal(fresh.getAttribute(DETAIL_ATTR), '暴言');
+  assert.equal(processor.detailOf(fresh), '暴言');
 
   processor.applyPending([unresolved], 'id-@unresolved', { id: 'id-@unresolved', text: '本文' });
   assert.equal(unresolved.getAttribute(STATE_ATTR), 'pending');
-  assert.equal(unresolved.getAttribute(DETAIL_ATTR), null);
+  assert.equal(processor.detailOf(unresolved), null);
 });
 
 test('隠した thread が表示に変わったら detail を外す', () => {
@@ -309,11 +308,11 @@ test('隠した thread が表示に変わったら detail を外す', () => {
   });
   const { thread } = makeThread('@eve', 'spam');
   processor.processThreads([thread]);
-  assert.equal(thread.getAttribute(DETAIL_ATTR), 'spam');
+  assert.equal(processor.detailOf(thread), 'spam');
   processor.setRules(compileRules({}));
   processor.processThreads([thread]);
   assert.equal(thread.getAttribute(STATE_ATTR), 'shown');
-  assert.equal(thread.getAttribute(DETAIL_ATTR), null);
+  assert.equal(processor.detailOf(thread), null);
 });
 
 test('一時表示の属性は、コメント ID か本文が変わったら外し、同じコメントのままなら残す', () => {
