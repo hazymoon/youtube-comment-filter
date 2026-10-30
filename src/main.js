@@ -4,21 +4,7 @@
 
 import { cacheVersion } from './ai.js';
 import { createAiCache } from './cache.js';
-import {
-  AI_BATCH_SIZE,
-  AI_CACHE_MAX_ENTRIES,
-  AI_CATEGORIES,
-  AI_ENABLED,
-  AI_MAX_CHARS,
-  AI_TIMEOUT_MS,
-  ALLOW_USERS,
-  DEBUG,
-  EXEMPT_OWNER,
-  EXEMPT_PINNED,
-  EXEMPT_VERIFIED,
-  NG_USERS,
-  NG_WORDS,
-} from './config.js';
+import { ALLOW_USERS, NG_USERS, NG_WORDS } from './config.js';
 import { buildCountText, buildStatusText } from './decide.js';
 import { directChildById, extractComment, findOwnExpanderContent, findOwnViewModel } from './dom.js';
 import { restoreFocusAfterHide } from './focus.js';
@@ -29,6 +15,7 @@ import {
   NG_USERS_VALUE_KEY,
   NG_WORDS_VALUE_KEY,
   appendStoredUser,
+  parseStoredOptions,
   parseStoredSettings,
 } from './settings.js';
 import { createAiQueue } from './queue.js';
@@ -66,23 +53,31 @@ const CACHE_SAVE_DELAY_MS = 2000;
 const SCAN_DELAY_MS = 50;
 
 /**
- * 判定の経過を console に出す（DEBUG のときだけ）。本文は出さない。
- * @param {...unknown} args 出す値
+ * 判定の経過を console に出す関数を作る。本文は出さない。
+ * @param {boolean} enabled 出すか（「値」の debug）
+ * @returns {(...args: unknown[]) => void}
  */
-function debugLog(...args) {
-  // console.debug は Chrome の既定の表示レベル（詳細を除く）では出ないので、console.log で出す
-  if (DEBUG) console.log('[youtube-comment-filter]', ...args);
+function createDebugLog(enabled) {
+  return (...args) => {
+    // console.debug は Chrome の既定の表示レベル（詳細を除く）では出ないので、console.log で出す
+    if (enabled) console.log('[youtube-comment-filter]', ...args);
+  };
 }
 
 /**
  * style 要素を差し込む。document-start では head が無いことがあるので html 要素の直下に入れる。
  * @param {Document} doc document
+ * @param {import('./settings.js').StoredOptions} options 「値」タブから読んだ設定
  */
-function injectStyles(doc) {
+function injectStyles(doc, options) {
   if (doc.getElementById(STYLE_ID)) return;
   const style = doc.createElement('style');
   style.id = STYLE_ID;
-  style.textContent = buildStyles();
+  style.textContent = buildStyles({
+    previewChars: options.previewChars,
+    revealDelayMs: options.revealDelayMs,
+    revealMsPerLine: options.revealMsPerLine,
+  });
   (doc.head ?? doc.documentElement).appendChild(style);
 }
 
@@ -123,6 +118,19 @@ function readStoredSettings() {
 }
 
 /**
+ * 「値」タブで設定ブロックの定数を上書きする値を読む。不正な値の理由は console に出す。GM_* が使えない環境では既定値にする。
+ * readStoredSettings と違い、まだ無い値を作らない。既定値を書き込むと、後のリリースで config.js の既定値を変えても、
+ * 既に使っている人には書き込んだ古い値が残って届かなくなるため。
+ * @returns {import('./settings.js').StoredOptions}
+ */
+function readStoredOptions() {
+  const read = typeof GM_getValue === 'function' ? (key) => GM_getValue(key) : () => undefined;
+  const { options, warnings } = parseStoredOptions(read);
+  for (const warning of warnings) console.warn('[youtube-comment-filter]', warning);
+  return options;
+}
+
+/**
  * 設定ブロックと「値」タブの NG ユーザ・NG ワード・許可ユーザを合わせて照合器にする。設定の誤りは console に出す。
  * @returns {import('./rules.js').CompiledRules}
  */
@@ -143,15 +151,18 @@ function buildRules() {
  */
 export function main() {
   const doc = document;
-  injectStyles(doc);
+  // CSS の見せ方も「値」で変わるので、差し込む前に読む
+  const options = readStoredOptions();
+  const debugLog = createDebugLog(options.debug);
+  injectStyles(doc, options);
   updatePageAttrs();
   const navigation = createNavigationState(location.href);
 
   const rules = buildRules();
 
   const cache = createAiCache({
-    maxEntries: AI_CACHE_MAX_ENTRIES,
-    version: cacheVersion(AI_CATEGORIES, AI_BATCH_SIZE),
+    maxEntries: options.aiCacheMaxEntries,
+    version: cacheVersion(options.aiCategories, options.aiBatchSize),
     storage: createGmStorage(),
     schedule(fn) {
       const timer = setTimeout(fn, CACHE_SAVE_DELAY_MS);
@@ -174,8 +185,8 @@ export function main() {
   let pendingFocusThread = null;
 
   const lm = createLanguageModelController({
-    categories: AI_CATEGORIES,
-    enabled: AI_ENABLED,
+    categories: options.aiCategories,
+    enabled: options.aiEnabled,
     onStateChange(aiState) {
       debugLog('AI の状態', aiState);
       // AI が使えなくなったら判定中のコメントを表示に戻すため、状態が変わるたびにスキャンし直す
@@ -186,7 +197,7 @@ export function main() {
 
   const processor = createThreadProcessor({
     rules,
-    exempt: { owner: EXEMPT_OWNER, pinned: EXEMPT_PINNED, verified: EXEMPT_VERIFIED },
+    exempt: { owner: options.exemptOwner, pinned: options.exemptPinned, verified: options.exemptVerified },
     cache,
     getAiMode: () => lm.getState().mode,
     debugLog,
@@ -196,10 +207,10 @@ export function main() {
   const queue = createAiQueue({
     waitForReady: () => lm.waitForReady(),
     cloneSession: () => lm.cloneSession(),
-    batchSize: AI_BATCH_SIZE,
-    timeoutMs: AI_TIMEOUT_MS,
-    maxChars: AI_MAX_CHARS,
-    categories: AI_CATEGORIES,
+    batchSize: options.aiBatchSize,
+    timeoutMs: options.aiTimeoutMs,
+    maxChars: options.aiMaxChars,
+    categories: options.aiCategories,
     // 監視中のコメント欄で判定待ちのままのコメントだけを AI に送る。Shorts で次の動画へ移った直後は前の動画の
     // 判定待ちのコメントが DOM に残っていて順番待ちに入りうるので、それが消えた後に AI の時間を使わないため
     isWanted: (id) =>
@@ -303,7 +314,7 @@ export function main() {
       renderBar();
       return;
     }
-    const startedAt = DEBUG ? performance.now() : 0;
+    const startedAt = options.debug ? performance.now() : 0;
     const threads = currentThreads();
     const items = processor.processThreads(threads);
     for (const thread of threads) decorateThread(thread);
@@ -317,7 +328,7 @@ export function main() {
     if (items.length > 0 && navigation.canEnqueue()) queue.enqueue(items);
     renderBar();
     // 工程 3 でスキャンの所要時間を実ページで測るための記録
-    if (DEBUG) debugLog('スキャン', threads.length, '件', `${(performance.now() - startedAt).toFixed(1)}ms`);
+    if (options.debug) debugLog('スキャン', threads.length, '件', `${(performance.now() - startedAt).toFixed(1)}ms`);
   }
 
   /**
