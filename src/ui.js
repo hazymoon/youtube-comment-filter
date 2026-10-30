@@ -2,14 +2,15 @@
  * @file 件数バーと NG 登録のボタン。要素は createElement と textContent だけで作る（Trusted Types のため文字列 HTML の代入はしない）。
  */
 
-import { BAR_ID, BLOCK_BUTTON_CLASS, HEADER_AUTHOR_SELECTOR } from './selectors.js';
+import { BAR_ID, BLOCK_BUTTON_CLASS, HEADER_AUTHOR_SELECTOR, REASON_STRIP_CLASS } from './selectors.js';
 
 /**
  * @typedef {object} CountBar
  * @property {HTMLElement} element バーの要素
  * @property {HTMLElement} button 開閉ボタン。NG 登録で表示中のコメントが無くなったときのフォーカスの移し先にも使う（focus.js）
- * @property {(state: { open: boolean, countText: string, statusText: string, visible: boolean }) => void} update
- *   表示を更新する。変わった部分だけ書き換える
+ * @property {HTMLElement} reasonsButton 「理由を表示」のボタン。理由の表示を閉じて帯が消えるときのフォーカスの移し先にも使う
+ * @property {(state: { open: boolean, countText: string, statusText: string, visible: boolean, reasons?: boolean }) => void} update
+ *   表示を更新する。変わった部分だけ書き換える。reasons は隠したコメントの理由を表示しているか
  * @property {(commentsEl: Element) => void} attach コメント欄の直前の兄弟として差し込む（差し込み済みなら何もしない）
  */
 
@@ -19,9 +20,10 @@ import { BAR_ID, BLOCK_BUTTON_CLASS, HEADER_AUTHOR_SELECTOR } from './selectors.
  * @param {object} options
  * @param {Document} options.doc 要素を作る document
  * @param {() => void} options.onToggle 開閉ボタンが押された。クリックの同期区間で呼ぶ（LanguageModel.create のユーザー操作に使うため）
+ * @param {() => void} [options.onToggleReasons] 「理由を表示」のボタンが押された
  * @returns {CountBar}
  */
-export function createCountBar({ doc, onToggle }) {
+export function createCountBar({ doc, onToggle, onToggleReasons = () => {} }) {
   const element = doc.createElement('div');
   element.id = BAR_ID;
   element.hidden = true;
@@ -34,12 +36,24 @@ export function createCountBar({ doc, onToggle }) {
     onToggle();
   });
 
+  // 押すたびに文言を変えるのではなく aria-pressed で状態を示すトグルにする（開閉ボタンと違い、押しても見える範囲は変わらないため）
+  const reasonsButton = doc.createElement('button');
+  reasonsButton.type = 'button';
+  reasonsButton.textContent = '理由を表示';
+  reasonsButton.title = '隠したコメントの位置に理由を表示し、押すと親コメントを一時的に表示できるようにする';
+  reasonsButton.setAttribute('aria-pressed', 'false');
+  reasonsButton.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onToggleReasons();
+  });
+
   const counts = doc.createElement('span');
   counts.className = 'ycf-counts';
   const status = doc.createElement('span');
   status.className = 'ycf-status';
 
-  element.append(button, counts, status);
+  element.append(button, reasonsButton, counts, status);
 
   /**
    * 文字列が変わったときだけ書き換える（不要な再描画を避ける）。
@@ -53,9 +67,11 @@ export function createCountBar({ doc, onToggle }) {
   return {
     element,
     button,
-    update({ open, countText, statusText, visible }) {
+    reasonsButton,
+    update({ open, countText, statusText, visible, reasons = false }) {
       setText(button, open ? 'コメントを隠す' : 'コメントを表示');
       button.setAttribute('aria-expanded', open ? 'true' : 'false');
+      reasonsButton.setAttribute('aria-pressed', reasons ? 'true' : 'false');
       setText(counts, countText);
       setText(status, statusText);
       if (element.hidden === visible) element.hidden = !visible;
@@ -138,4 +154,86 @@ export function isBlockButtonInsertion(record) {
   return Array.from(record.addedNodes).every(
     (node) => node?.nodeType === 1 && node.classList?.contains?.(BLOCK_BUTTON_CLASS) === true,
   );
+}
+
+/**
+ * 隠した thread の先頭（#comment-container の前）に理由の帯を差し込み、文言と一時表示の状態を合わせる。
+ * 帯は本物の button にし、キーボードでも押せるようにする（疑似要素の帯はフォーカスできないため）。
+ * 差し込み済みなら作り直さず、文言は変わったときだけ書き換える（書き換えもコメント欄の監視に届くため）。
+ * 帯を見せるかは CSS が決める（styles.js）。要素が別のコメントに使い回されても、押された時点の thread を読むので付け直さない。
+ * @param {any} thread ytd-comment-thread-renderer
+ * @param {Document} doc 要素を作る document
+ * @param {{ text: string, expanded: boolean }} state 帯の文言（decide.js の buildReasonText）と、親コメントを一時的に見せているか
+ * @param {(strip: HTMLElement) => void} onClick 帯が押された
+ * @returns {any} 帯の要素
+ */
+export function ensureReasonStrip(thread, doc, { text, expanded }, onClick) {
+  let strip = Array.from(thread.children ?? []).find((child) => child?.classList?.contains(REASON_STRIP_CLASS));
+  if (!strip) {
+    strip = doc.createElement('button');
+    strip.type = 'button';
+    strip.className = REASON_STRIP_CLASS;
+    strip.title = '押すと親コメントを一時的に表示する（返信は隠したまま）';
+    strip.addEventListener('click', (event) => {
+      // YouTube 側のクリック処理に渡さない
+      event.preventDefault();
+      event.stopPropagation();
+      onClick(strip);
+    });
+    thread.insertBefore(strip, thread.firstElementChild ?? null);
+  }
+  if (strip.textContent !== text) strip.textContent = text;
+  syncAttribute(strip, 'aria-expanded', String(expanded));
+  return strip;
+}
+
+/**
+ * 要素かテキストノードが、理由の帯かその中にあるか。
+ * @param {any} node ノード
+ * @returns {boolean}
+ */
+function isInReasonStrip(node) {
+  const element = node?.nodeType === 1 ? node : node?.parentElement;
+  return typeof element?.closest === 'function' && element.closest(`.${REASON_STRIP_CLASS}`) !== null;
+}
+
+/**
+ * 変化の通知が、理由の帯の差し込みか帯の中の文言の書き換えだけのものか。
+ * isBlockButtonInsertion と同じく、自分の変化でコメント欄の再スキャンを回さないよう除くために使う。
+ * @param {{ type: string, target?: any, addedNodes: ArrayLike<any>, removedNodes: ArrayLike<any> }} record MutationRecord
+ * @returns {boolean}
+ */
+export function isReasonStripMutation(record) {
+  if (isInReasonStrip(record.target)) return true;
+  if (record.type !== 'childList' || record.removedNodes.length > 0 || record.addedNodes.length === 0) return false;
+  return Array.from(record.addedNodes).every(
+    (node) => node?.nodeType === 1 && node.classList?.contains?.(REASON_STRIP_CLASS) === true,
+  );
+}
+
+/**
+ * キー入力が、理由の帯の上で帯を押す Enter・Space か。そうなら帯を返す。
+ * 本文の操作（main.js の onDocumentKeydown）と同じく、修飾キー付き・押しっぱなしの繰り返し・変換中のキーは除く。
+ * 帯を押すキーが YouTube のショートカット（Space の再生・一時停止など）に届かないよう、呼び出し側で既定の動きと伝播を止めて
+ * 帯を押したことにするために使う。
+ * @param {{ key: string, target: any, altKey: boolean, ctrlKey: boolean, metaKey: boolean, shiftKey: boolean, repeat: boolean, isComposing: boolean }} event キー入力
+ * @returns {any|null} 帯の要素
+ */
+export function reasonStripOfKeyEvent(event) {
+  if (event.key !== 'Enter' && event.key !== ' ') return null;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat || event.isComposing)
+    return null;
+  const target = event.target;
+  return target?.nodeType === 1 && target.classList?.contains?.(REASON_STRIP_CLASS) === true ? target : null;
+}
+
+/**
+ * 理由の帯にフォーカスがあるとき、フォーカスを移し先へ移す。理由の表示を閉じると帯が display:none になり、
+ * フォーカスが body に落ちてキーボードで元の位置に戻れなくなるため（focus.js の restoreFocusAfterHide と同じ考え方）。
+ * @param {any} activeElement いまフォーカスのある要素
+ * @param {{ focus: (options?: FocusOptions) => void }} fallback 移し先（件数バーの「理由を表示」のボタン）
+ */
+export function moveFocusOffReasonStrip(activeElement, fallback) {
+  if (activeElement?.nodeType !== 1 || activeElement.classList?.contains?.(REASON_STRIP_CLASS) !== true) return;
+  fallback.focus({ preventScroll: true });
 }
