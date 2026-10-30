@@ -64,6 +64,14 @@ div#body
 - YouTube 自身の折りたたみは `ytd-expander#expander > #content` の 4 行で、溢れたときに `#more` が出る。段階表示はこの `#content` の行数を上書きし、`#more` / `#less` を隠して置き換える
 - @返信の宛先リンクは本文の先頭の `a.ytAttributedStringLink` で、href は `/channel/UC…` だった
 
+### 本文のリンク
+
+2026-10-30 に、外部の URL を含むコメントで確認した（Chrome）。
+
+- 外部の URL のリンクは `a.ytAttributedStringLink.ytAttributedStringLinkCallToActionColor` で、href は `/redirect?event=…&redir_token=…&q=<URL>` の相対パスだった（`q` はパーセントエンコードされた飛び先）
+- @メンション（`/@…`・`/channel/UC…`）や時刻リンク（`/watch?v=…&t=`）も同じ `a.ytAttributedStringLink` で現れる
+- 許可したドメイン以外へのリンクの判定（「値」の `allowLinkDomains`）は、本文の要素の中の `a[href]` を全部読み、`/redirect` なら `q` の飛び先のホスト名で見る
+
 ### 固定コメントの印
 
 2026-10-23 に、固定コメントのある動画で確認した（トップレベル 20 件のうち 1 件が固定。Chrome、page 世界）。
