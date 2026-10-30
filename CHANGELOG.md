@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0](https://github.com/hazymoon/youtube-comment-filter/compare/v0.5.2...v0.6.0) (2026-10-30)
+
+
+### Features
+
+* NG ワードの照合で、キリル文字などラテン文字に似た文字を同じ文字とみなす ([#41](https://github.com/hazymoon/youtube-comment-filter/issues/41)) ([903f0fe](https://github.com/hazymoon/youtube-comment-filter/commit/903f0febd764ec3dbc360409f8b1a30b990f1e4b))
+* 動画の投稿者になりすましたコメントを隠す ([#46](https://github.com/hazymoon/youtube-comment-filter/issues/46)) ([090bdb1](https://github.com/hazymoon/youtube-comment-filter/commit/090bdb1ef1f50da0d34873e845cc56959e7f0ce4))
+* 設定ブロックの値を「値」タブで変えられるようにし、自動更新後も残す ([#42](https://github.com/hazymoon/youtube-comment-filter/issues/42)) ([9f7b086](https://github.com/hazymoon/youtube-comment-filter/commit/9f7b08618170585d51527e5a8c9e4638641901ac))
+* 許可したドメイン以外へのリンクを含むコメントを隠せるようにする ([#45](https://github.com/hazymoon/youtube-comment-filter/issues/45)) ([bf647da](https://github.com/hazymoon/youtube-comment-filter/commit/bf647da7cb7e01fe7cd6cd418c793f8d58a9b986))
+* 隠したコメントの理由を帯で表示し、押すと一時的に表示する ([#44](https://github.com/hazymoon/youtube-comment-filter/issues/44)) ([1467d1a](https://github.com/hazymoon/youtube-comment-filter/commit/1467d1a0bc5c4c0a1107d5cdba17309626389c9f))
+
 ## [0.5.2](https://github.com/hazymoon/youtube-comment-filter/compare/v0.5.1...v0.5.2) (2026-10-29)
 
 
