@@ -24,7 +24,6 @@ import { createThreadProcessor } from './scanner.js';
 import {
   COMMENT_CONTAINER_ID,
   COMMENTS_SELECTOR,
-  DETAIL_ATTR,
   EXPANDED_ATTR,
   EXPANDER_CONTENT_ID,
   EXPANDER_SELECTOR,
@@ -372,7 +371,7 @@ export function main() {
       const text = buildReasonText({
         state,
         reason: thread.getAttribute(REASON_ATTR),
-        detail: thread.getAttribute(DETAIL_ATTR),
+        detail: processor.detailOf(thread),
       });
       ensureReasonStrip(thread, doc, { text, expanded: thread.hasAttribute(REVEALED_ATTR) }, onReasonClick);
     }

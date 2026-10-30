@@ -138,12 +138,6 @@ export const REASONS_ATTR = 'data-ycf-reasons';
 export const REASON_ATTR = 'data-ycf-reason';
 
 /**
- * 隠した thread に付ける、理由の詳細。NG ユーザ・NG ワードは judgeByRules の detail、AI はカテゴリ。
- * 詳細が無いときは付けない。帯の文言（decide.js の buildReasonText）に使う
- */
-export const DETAIL_ATTR = 'data-ycf-detail';
-
-/**
  * 隠した thread に付ける。理由の帯が押され、親コメントを一時的に見せている間だけ付ける。
  * 判定の結果は変えない。コメント ID か本文が変わったら外す（scanner.js）
  */

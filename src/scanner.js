@@ -8,7 +8,6 @@ import { extractComment, isInsideHiddenThread } from './dom.js';
 import { hashString } from './hash.js';
 import { judgeByRules, judgeExemption } from './rules.js';
 import {
-  DETAIL_ATTR,
   EXEMPTION_ATTR,
   EXPANDED_ATTR,
   HASH_ATTR,
@@ -50,14 +49,12 @@ function syncThreadAttribute(thread, name, value) {
  * @param {Element} thread ytd-comment-thread-renderer
  * @param {'shown'|'hidden'|'pending'} state 表示状態
  * @param {string|undefined} reason 理由
- * @param {string|undefined} [detail] 理由の詳細（DETAIL_ATTR。隠したときの帯の文言に使う）。省略すると取り除く
  */
-export function applyThreadState(thread, state, reason, detail) {
+export function applyThreadState(thread, state, reason) {
   if (thread.getAttribute(STATE_ATTR) !== state) thread.setAttribute(STATE_ATTR, state);
   // 一時表示は隠しているコメントに限る。表示などに変わったら外し、後でまた隠したときに開いたまま出さない
   if (state !== 'hidden' && thread.hasAttribute(REVEALED_ATTR)) thread.removeAttribute(REVEALED_ATTR);
   syncThreadAttribute(thread, REASON_ATTR, reason);
-  syncThreadAttribute(thread, DETAIL_ATTR, detail);
 }
 
 /**
@@ -67,7 +64,7 @@ export function applyThreadState(thread, state, reason, detail) {
  * @param {{ category: string|null }|null} cached キャッシュの判定結果
  * @returns {string|undefined}
  */
-function detailOf(decision, ruleResult, cached) {
+function hiddenDetailOf(decision, ruleResult, cached) {
   if (decision.state !== 'hidden') return undefined;
   if (decision.reason === 'ai') return cached?.category ?? undefined;
   return ruleResult.detail;
@@ -121,6 +118,9 @@ function threadOfTarget(target) {
  *   変化した要素を含む thread について、表示中のコメントが判定したものと同じかを同期で確かめ、
  *   違えば判定前（CSS で隠れる状態）に戻す。判定から外すかどうかの結果だけが変わったときは、
  *   判定から外して表示していたものが外れなくなった場合だけ判定前に戻し、ほかは次のスキャンに任せる
+ * @property {(thread: Element) => string|null} detailOf
+ *   隠した thread の理由の詳細を返す（帯の文言に使う）。NG ユーザなら judgeByRules の照合の種類、NG ワードなら一致した設定値、
+ *   AI ならカテゴリ。隠していないときや詳細が無いときは null
  * @property {(rules: import('./rules.js').CompiledRules) => void} setRules
  *   ルールを差し替える。表示か非表示に確定済みのコメントも、次の processThreads で新しいルールで判定し直す。
  *   新しいルールに当たらず、状態が AI の判定などルールに依らずに決まっていたものは、その状態を保つ
@@ -153,6 +153,25 @@ export function createThreadProcessor({
   let rulesVersion = 0;
   /** @type {WeakMap<Element, number>} */
   const judgedRulesVersion = new WeakMap();
+  /**
+   * 隠した thread の理由の詳細（NG ワード・NG ユーザの照合の種類・AI のカテゴリ）。帯の文言に使う。
+   * 利用者の NG ワードを YouTube のページの DOM に残さないよう、属性には書かずここに持つ
+   * @type {WeakMap<Element, string>}
+   */
+  const hiddenDetails = new WeakMap();
+
+  /**
+   * applyThreadState に加え、隠したときの理由の詳細を持つ。隠していないときは消す。
+   * @param {Element} thread ytd-comment-thread-renderer
+   * @param {'shown'|'hidden'|'pending'} state 表示状態
+   * @param {string|undefined} reason 理由
+   * @param {string|undefined} [detail] 理由の詳細
+   */
+  function applyState(thread, state, reason, detail) {
+    applyThreadState(thread, state, reason);
+    if (state === 'hidden' && detail !== undefined) hiddenDetails.set(thread, detail);
+    else hiddenDetails.delete(thread);
+  }
 
   /**
    * AI が隠したコメントのカテゴリと本文の冒頭を出す。隠したコメントを画面で確かめる手段が無いので、
@@ -199,7 +218,7 @@ export function createThreadProcessor({
         thread.removeAttribute(REVEALED_ATTR);
       }
       if (thread.getAttribute(REASON_ATTR) !== 'unreadable') debugLog('読めないコメント', extracted.unreadable);
-      applyThreadState(thread, 'pending', 'unreadable');
+      applyState(thread, 'pending', 'unreadable');
       return;
     }
 
@@ -243,7 +262,7 @@ export function createThreadProcessor({
       aiMode !== 'failed';
     const cached = needsCache ? cache.get(extracted.id, extracted.textHash) : null;
     const decision = decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved, exempt: exemption !== null });
-    applyThreadState(thread, decision.state, decision.reason, detailOf(decision, ruleResult, cached));
+    applyState(thread, decision.state, decision.reason, hiddenDetailOf(decision, ruleResult, cached));
     judgedRulesVersion.set(thread, rulesVersion);
     if (decision.state !== 'pending' || !same) {
       debugLog('判定', extracted.id, decision.state, decision.reason ?? '', exemption ?? ruleResult.detail ?? '');
@@ -268,7 +287,7 @@ export function createThreadProcessor({
         } catch (error) {
           // 1 件の失敗で残りの thread が判定前のまま残らないよう、その thread だけ判定待ちにして続ける
           debugLog('判定中の例外', error);
-          applyThreadState(thread, 'pending', 'unreadable');
+          applyState(thread, 'pending', 'unreadable');
         }
       }
       return [...fresh, ...retries];
@@ -288,9 +307,9 @@ export function createThreadProcessor({
           continue;
         }
         if (thread.getAttribute(STATE_ATTR) !== 'pending') continue;
-        if (verdict.hide) applyThreadState(thread, 'hidden', 'ai', verdict.category ?? undefined);
+        if (verdict.hide) applyState(thread, 'hidden', 'ai', verdict.category ?? undefined);
         else {
-          applyThreadState(thread, 'shown', undefined);
+          applyState(thread, 'shown', undefined);
           onShown(thread);
         }
         debugLog('AI の判定', id, verdict.hide ? `hidden(${verdict.category})` : 'shown');
@@ -313,10 +332,14 @@ export function createThreadProcessor({
           continue;
         }
         if (thread.getAttribute(STATE_ATTR) !== 'pending') continue;
-        applyThreadState(thread, 'pending', 'ai-unresolved');
+        applyState(thread, 'pending', 'ai-unresolved');
         debugLog('AI の判定待ち', id);
       }
       return { needsRescan };
+    },
+
+    detailOf(thread) {
+      return hiddenDetails.get(thread) ?? null;
     },
 
     setRules(rules) {
@@ -376,6 +399,7 @@ export function createThreadProcessor({
           if (!exemptedNow || exemptionRecord !== '') continue;
           thread.removeAttribute(STATE_ATTR);
           thread.removeAttribute(REASON_ATTR);
+          hiddenDetails.delete(thread);
           debugLog('判定から外す条件が外れたので判定前に戻す', extracted.id);
           continue;
         }
@@ -385,6 +409,7 @@ export function createThreadProcessor({
         thread.removeAttribute(REASON_ATTR);
         thread.removeAttribute(EXPANDED_ATTR);
         thread.removeAttribute(REVEALED_ATTR);
+        hiddenDetails.delete(thread);
         debugLog('表示中のコメントが変わったので判定前に戻す', thread.getAttribute(ID_ATTR) ?? '');
       }
     },
