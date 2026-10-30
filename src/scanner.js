@@ -190,7 +190,11 @@ export function createThreadProcessor({
     /** @type {ReturnType<typeof judgeByRules>} */
     const ruleResult =
       exemption === null
-        ? judgeByRules({ ...extracted, linkHrefs: extractLinkHrefs(thread) }, currentRules)
+        ? judgeByRules(
+            // リンクの判定を使わないときは、本文のリンクを読まない（DOM の走査を増やさないため）
+            currentRules.linkFilterEnabled ? { ...extracted, linkHrefs: extractLinkHrefs(thread) } : extracted,
+            currentRules,
+          )
         : { reason: null };
     if (settled && exemption === null && ruleResult.reason === null && keepsVerdictWithoutRules(thread)) {
       // ルールの差し替えで判定し直したが、新しいルールにも当たらない。AI の判定（表示・非表示）はルールに依らないので

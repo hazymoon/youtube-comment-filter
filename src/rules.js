@@ -102,6 +102,7 @@ function compileUsers(entries, label, warnings) {
  *   返信の本文が NG ユーザ宛ての @メンションで始まるか
  * @property {(hrefs: string[]) => ({ host: string }|null)} matchLink
  *   本文のリンクに、許可したドメイン以外へのものがあるか（最初のもののホスト名を返す）。allowLinkDomains が無ければ常に null
+ * @property {boolean} linkFilterEnabled allowLinkDomains を指定したか。false なら呼び出し側は本文のリンクを読まなくてよい
  */
 
 /**
@@ -114,6 +115,10 @@ function compileUsers(entries, label, warnings) {
 export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [], allowLinkDomains = null } = {}) {
   /** @type {string[]} */
   const warnings = [];
+  // 常に許可するドメインと合わせ、照合用の形にしておく（照合のたびに作り直さないため）。null なら無効
+  const allowedLinkDomains = Array.isArray(allowLinkDomains)
+    ? [...ALWAYS_ALLOWED_LINK_DOMAINS, ...allowLinkDomains].map(normalizeLinkHost)
+    : null;
   const { handles, channelIds } = compileUsers(ngUsers, 'NG_USERS', warnings);
   const allowed = compileUsers(allowUsers, 'ALLOW_USERS', warnings);
   /** @type {{ normalized: string, label: string }[]} */
@@ -203,11 +208,14 @@ export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [], allo
       return textMatch !== null && isNgHandle(textMatch[1]);
     },
 
+    linkFilterEnabled: allowedLinkDomains !== null,
+
     matchLink(hrefs) {
-      if (!Array.isArray(allowLinkDomains)) return null;
+      if (allowedLinkDomains === null) return null;
       for (const href of hrefs) {
-        const host = linkTargetHost(href);
-        if (host !== null && !isAllowedLinkHost(host, allowLinkDomains)) return { host };
+        for (const host of linkTargetHosts(href)) {
+          if (!allowedLinkDomains.some((domain) => isHostInDomain(host, domain))) return { host };
+        }
       }
       return null;
     },
@@ -305,44 +313,47 @@ function isHostInDomain(host, domain) {
 /**
  * 本文のリンクの飛び先のホスト名を求める。YouTube の外部リンクは /redirect?…&q=<URL> になっているので、q の URL を見る
  * （docs/dom-structure.md「本文のリンク」）。相対パスは YouTube 内なので www.youtube.com になる。
- * 壊れた URL・q の無い /redirect・ホスト名の無いリンク（mailto: など）は判定しないので null を返す。
+ * q が複数あるときは全部見る（先頭だけを見ると、許可したドメインの q を前に置いて許可外の q をすり抜けさせられるため）。
+ * 壊れた URL・q の無い /redirect・ホスト名の無いリンク（mailto: など）は判定しないので含めない。
  * @param {unknown} href リンクの href
- * @returns {string|null} 照合用の形のホスト名
+ * @returns {string[]} 照合用の形のホスト名
  */
-function linkTargetHost(href) {
-  if (typeof href !== 'string' || href === '') return null;
+function linkTargetHosts(href) {
+  if (typeof href !== 'string' || href === '') return [];
   let url;
   try {
     url = new URL(href, 'https://www.youtube.com');
   } catch {
-    return null;
+    return [];
   }
-  for (let unwrapped = 0; ; unwrapped += 1) {
-    const host = normalizeLinkHost(url.hostname);
-    if (url.pathname !== '/redirect' || !isHostInDomain(host, 'youtube.com')) return host === '' ? null : host;
-    // 上限を超えて入れ子になった /redirect は、飛び先を確かめられないが許可外として扱う（REDIRECT_TOO_DEEP_HOST）。
-    // 壊れた URL を判定しないのは、利用者が書いたリンクの書き損じを隠さないためだが、深い入れ子は判定を
-    // すり抜けるために作られたものとみなせるので、隠さない側に倒すとそのまま抜け道になる
-    if (unwrapped >= MAX_REDIRECT_UNWRAP) return REDIRECT_TOO_DEEP_HOST;
-    const target = url.searchParams.get('q');
-    if (!target) return null;
-    try {
-      // q は絶対 URL。相対として解釈すると YouTube 内に化けて許可されるので、基準の URL を渡さない
-      url = new URL(target);
-    } catch {
-      return null;
-    }
-  }
+  return hostsOfUrl(url, 0);
 }
 
 /**
- * ホスト名が、常に許可するドメインか許可リストのドメイン（サブドメインを含む）に入るか。
- * @param {string} host 照合用の形のホスト名
- * @param {string[]} allowLinkDomains 許可リスト
- * @returns {boolean}
+ * URL の飛び先のホスト名を、YouTube の /redirect を剥がしながら集める。
+ * @param {URL} url 対象
+ * @param {number} unwrapped ここまでに剥がした回数
+ * @returns {string[]} 照合用の形のホスト名
  */
-function isAllowedLinkHost(host, allowLinkDomains) {
-  return [...ALWAYS_ALLOWED_LINK_DOMAINS, ...allowLinkDomains].some((domain) =>
-    isHostInDomain(host, normalizeLinkHost(domain)),
-  );
+function hostsOfUrl(url, unwrapped) {
+  const host = normalizeLinkHost(url.hostname);
+  if (url.pathname !== '/redirect' || !isHostInDomain(host, 'youtube.com')) return host === '' ? [] : [host];
+  // 上限を超えて入れ子になった /redirect は、飛び先を確かめられないが許可外として扱う（REDIRECT_TOO_DEEP_HOST）。
+  // 壊れた URL を判定しないのは、利用者が書いたリンクの書き損じを隠さないためだが、深い入れ子は判定を
+  // すり抜けるために作られたものとみなせるので、隠さない側に倒すとそのまま抜け道になる
+  if (unwrapped >= MAX_REDIRECT_UNWRAP) return [REDIRECT_TOO_DEEP_HOST];
+  /** @type {string[]} */
+  const hosts = [];
+  for (const target of url.searchParams.getAll('q')) {
+    if (target === '') continue;
+    let next;
+    try {
+      // q は絶対 URL。相対として解釈すると YouTube 内に化けて許可されるので、基準の URL を渡さない
+      next = new URL(target);
+    } catch {
+      continue;
+    }
+    hosts.push(...hostsOfUrl(next, unwrapped + 1));
+  }
+  return hosts;
 }
