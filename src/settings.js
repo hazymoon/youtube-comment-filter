@@ -270,7 +270,8 @@ function normalizeLinkDomain(entry) {
   if (trimmed === '' || trimmed.startsWith('.') || NON_DOMAIN_CHARS.test(trimmed)) return null;
   try {
     const host = new URL(`https://${trimmed}/`).hostname.replace(/\.$/, '');
-    return host === '' ? null : host;
+    // ラベルが 1 つだけの値（com など）は、サブドメインとしてそのトップレベルドメイン全体を許可してしまうので受け付けない
+    return host.includes('.') ? host : null;
   } catch {
     return null;
   }
