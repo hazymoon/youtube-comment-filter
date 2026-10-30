@@ -208,6 +208,30 @@ export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [] } = {
  */
 const MIN_IMPERSONATED_NAME_CHARS = 3;
 
+/** @type {WeakMap<object, Set<string>>} 動画の投稿者ごとの、照合に使う正規化した名前 */
+const impersonatedNamesCache = new WeakMap();
+
+/**
+ * 動画の投稿者の、照合に使う正規化した名前（MIN_IMPERSONATED_NAME_CHARS 文字未満のものは除く）を返す。
+ * 投稿者のオブジェクトごとに一度だけ作る。scanner.js は投稿者が変わるまで同じオブジェクトを渡すので、
+ * コメントごとに作り直さない。
+ * @param {VideoOwner} videoOwner 動画の投稿者
+ * @returns {Set<string>}
+ */
+function impersonatedNamesOf(videoOwner) {
+  let names = impersonatedNamesCache.get(videoOwner);
+  if (!names) {
+    names = new Set(
+      [videoOwner.handle, videoOwner.displayName]
+        .filter((name) => typeof name === 'string')
+        .map(normalizeIdentityName)
+        .filter((name) => [...name].length >= MIN_IMPERSONATED_NAME_CHARS),
+    );
+    impersonatedNamesCache.set(videoOwner, names);
+  }
+  return names;
+}
+
 /**
  * @typedef {object} VideoOwner 動画の投稿者（owner.js の readVideoOwner）
  * @property {string|null} handle "@" 付きのハンドル
@@ -231,12 +255,7 @@ export function matchImpersonation(author, videoOwner) {
   if (typeof videoOwner.handle === 'string' && normalizeHandle(author.handle) === normalizeHandle(videoOwner.handle)) {
     return false;
   }
-  const ownerNames = new Set(
-    [videoOwner.handle, videoOwner.displayName]
-      .filter((name) => typeof name === 'string')
-      .map(normalizeIdentityName)
-      .filter((name) => [...name].length >= MIN_IMPERSONATED_NAME_CHARS),
-  );
+  const ownerNames = impersonatedNamesOf(videoOwner);
   if (ownerNames.size === 0) return false;
   return [author.handle, author.displayName]
     .filter((name) => typeof name === 'string')
