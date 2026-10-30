@@ -131,9 +131,17 @@ function forEachScope(build) {
  * - コメント欄を閉じるときは visibility を使う。display:none だと YouTube がコメントを読み込まない（docs/spike.md）
  * - 判定前・判定待ちのコメントは 1 行の帯にして高さを保つ。高さが 0 になると続きの読み込みが連続して走りうる
  *   （docs/review-findings.md）
+ * @param {object} [options] 見せ方の設定。省いた項目は config.js の既定値を使う
+ * @param {number} [options.previewChars] 既定で見せる文頭の文字数（「値」の previewChars）
+ * @param {number} [options.revealDelayMs] 続きを見せ始めるまでの待ち時間（ミリ秒、「値」の revealDelayMs）
+ * @param {number} [options.revealMsPerLine] 続きを 1 行ぶん見せる時間（ミリ秒、「値」の revealMsPerLine）
  * @returns {string}
  */
-export function buildStyles() {
+export function buildStyles({
+  previewChars = PREVIEW_CHARS,
+  revealDelayMs = REVEAL_DELAY_MS,
+  revealMsPerLine = REVEAL_MS_PER_LINE,
+} = {}) {
   const close = COMMENTS_SCOPES.map((scope) => scope(`:not([${OPEN_ATTR}])`)).join(',\n');
   const unjudgedStates = [`:not([${STATE_ATTR}])`, `[${STATE_ATTR}="pending"]`];
   const unjudgedThread = forEachScope((thread) => unjudgedStates.map((st) => `${thread}${st}`));
@@ -206,13 +214,13 @@ export function buildStyles() {
   ]);
   const expandedFocusContent = forEachScope((thread) => [focusOf(expandedContainer(thread))]);
   // 行ごとに見せるマスク。既定の表示とホバーの両方に掛ける。--ycf-reveal が 0 から HOVER_LINES まで増えるにつれ、
-  // i 行目は i から i+1 の間で左から右へ見えていく（読む順）。1 行目は文頭の PREVIEW_CHARS 文字ほどの幅から始めるので、
+  // i 行目は i から i+1 の間で左から右へ見えていく（読む順）。1 行目は文頭の previewChars 文字ほどの幅から始めるので、
   // 見せる量が 0 の既定の表示では文頭だけが見え、2 行目以降は隠れる。
   // @property が効かないブラウザでは --ycf-reveal が未定義になり、mask-image ごと無効になって全文が見えてしまう。
   // 既定値 0 を持たせ、そのときも既定の表示は文頭だけに留める
   const revealMasks = Array.from({ length: HOVER_LINES }, (_, line) => {
     const progress = `clamp(0, var(--ycf-reveal, 0) - ${line}, 1) * 100%`;
-    const stop = line === 0 ? `max(${PREVIEW_CHARS}em, calc(${progress}))` : `calc(${progress})`;
+    const stop = line === 0 ? `max(${previewChars}em, calc(${progress}))` : `calc(${progress})`;
     return `linear-gradient(to right, #000 ${stop}, transparent ${stop})`;
   }).join(', ');
   const revealPositions = Array.from({ length: HOVER_LINES }, (_, line) =>
@@ -222,18 +230,18 @@ export function buildStyles() {
   // クリックの対象を両方切り、レイアウトには影響しないので、確保した高さを保ったまま見せた範囲だけを対象にする。
   // 既定の表示は 1 行目の文頭だけを切り出す。見せる量の変数や min()/max() に頼らない単純な式にして、
   // マスクの式を解釈できないブラウザで mask-image が無効になっても、文頭より先が見えないようにする（fail-closed）
-  const previewClip = `inset(0 calc(100% - ${PREVIEW_CHARS}em) calc(100% - ${LINE_HEIGHT_REM}rem) 0)`;
+  const previewClip = `inset(0 calc(100% - ${previewChars}em) calc(100% - ${LINE_HEIGHT_REM}rem) 0)`;
   // ホバーでは見せる量に連動させる。下端は見せる量に 1 行を足した高さで、見せている途中の行と 1 行目を含む。
-  // 右端は 1 行目を見せ終えるまで、見せた幅（文頭の PREVIEW_CHARS 文字ほど以上）に合わせる
+  // 右端は 1 行目を見せ終えるまで、見せた幅（文頭の previewChars 文字ほど以上）に合わせる
   const revealClip =
-    `inset(0 max(0px, min(100% - ${PREVIEW_CHARS}em, (1 - var(--ycf-reveal, 0)) * 100%)) ` +
+    `inset(0 max(0px, min(100% - ${previewChars}em, (1 - var(--ycf-reveal, 0)) * 100%)) ` +
     `calc(100% - (var(--ycf-reveal, 0) + 1) * ${LINE_HEIGHT_REM}rem) 0)`;
   // ホバーとキーボードのフォーカスで見せるときの宣言。両方の規則で同じ量を見せるため、1 か所で組み立てる
   const revealDeclarations = `  max-width: none !important;
   -webkit-line-clamp: ${HOVER_LINES} !important;
   line-height: ${LINE_HEIGHT_REM}rem !important;
   --ycf-reveal: ${HOVER_LINES};
-  transition: --ycf-reveal ${HOVER_LINES * REVEAL_MS_PER_LINE}ms linear ${REVEAL_DELAY_MS}ms;
+  transition: --ycf-reveal ${HOVER_LINES * revealMsPerLine}ms linear ${revealDelayMs}ms;
   -webkit-mask-image: ${revealMasks};
   mask-image: ${revealMasks};
   -webkit-mask-size: 100% ${LINE_HEIGHT_REM}rem;
@@ -304,11 +312,11 @@ ${hiddenThread} {
   initial-value: 0;
 }
 
-/* 表示: 段階表示（既定は文頭の PREVIEW_CHARS 文字ほど、ホバーで HOVER_LINES 行、クリックで全文）。
+/* 表示: 段階表示（既定は文頭の previewChars 文字ほど、ホバーで HOVER_LINES 行、クリックで全文）。
    ホバーで本文の高さが伸縮してレイアウトが動かないよう、既定でもホバーと同じ -webkit-line-clamp（HOVER_LINES）と
    幅で本文を組み、見せる量は行ごとのマスクだけで変える。line-clamp は行数の上限なので、高さは本文の行数
    （HOVER_LINES 行まで）で決まり、ホバーの前後で変わらない。1 行に収まる短いコメントでも全文が見えないよう、
-   既定では 1 行目のマスクで文頭の PREVIEW_CHARS 文字ほどの幅だけを見せ、2 行目以降を隠す。
+   既定では 1 行目のマスクで文頭の previewChars 文字ほどの幅だけを見せ、2 行目以降を隠す。
    マスクはクリックの対象を減らさないので、clip-path で描画とクリックの対象も見せた範囲に絞る。
    行の高さはマスクの帯の高さと揃える。
    キーボードで本文の枠にフォーカスしたときもホバーと同じ量を見せ、Enter・Space で全文に切り替える（main.js）。
