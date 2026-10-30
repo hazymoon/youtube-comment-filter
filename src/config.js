@@ -1,10 +1,15 @@
 /**
- * @file 利用者が編集する設定。
- * Violentmonkey のエディタでこのブロックの値を書き換えて保存すると反映される。
+ * @file 設定の既定値。
+ * Violentmonkey のエディタでこのブロックの値を書き換えて保存すると反映されるが、自動更新でスクリプトごと置き換わると消える。
+ * 値はスクリプトを貼り替えても自動更新しても残るので、変えたい設定は Violentmonkey のスクリプトの「値」タブに書くとよい。
  *
- * NG_USERS・NG_WORDS・ALLOW_USERS は、Violentmonkey のスクリプトの「値」タブの ngUsers / ngWords / allowUsers にも文字列の配列で書ける。
- * 値はスクリプトを貼り替えても残るので、こちらに書くとよい（ここに書いた分と合わせて使う）。
+ * NG_USERS・NG_WORDS・ALLOW_USERS は、「値」タブの ngUsers / ngWords / allowUsers にも文字列の配列で書ける（ここに書いた分と合わせて使う）。
  * 正規表現は "/死ね|しね/i" のように / で囲んだ文字列で書く。値の名前は初回の起動で空の配列として作られる。
+ *
+ * それ以外の定数は、各定数のコメントにある値の名前で「値」タブに書くと上書きできる（AI_CONCURRENCY を除く）。
+ * 値が無いときはこのブロックの既定値を使う。不正な値は既定値に戻し、理由を DevTools の console に出す
+ * （型と範囲は src/settings.js の STORED_OPTION_SPECS）。
+ * これらの値は起動時に作らない。既定値を書き込むと、後のリリースで既定値を変えても、既に使っている人には届かなくなるため。
  */
 
 /**
@@ -47,18 +52,21 @@ export const ALLOW_USERS = [];
 
 /**
  * 動画のチャンネル所有者のコメントを判定から外して常に表示するか。
+ * 「値」タブの exemptOwner で上書きできる。
  * @type {boolean}
  */
 export const EXEMPT_OWNER = true;
 
 /**
  * 固定コメントを判定から外して常に表示するか。
+ * 「値」タブの exemptPinned で上書きできる。
  * @type {boolean}
  */
 export const EXEMPT_PINNED = true;
 
 /**
  * 認証バッジ付きのチャンネルのコメントを判定から外して常に表示するか。
+ * 「値」タブの exemptVerified で上書きできる。
  * @type {boolean}
  */
 export const EXEMPT_VERIFIED = true;
@@ -66,6 +74,7 @@ export const EXEMPT_VERIFIED = true;
 /**
  * 端末内の AI（Chrome の Prompt API）で不快なコメントを判定するか。
  * false にするか、端末で AI が使えないときは、NG_USERS と NG_WORDS だけで判定する。
+ * 「値」タブの aiEnabled で上書きできる。
  * @type {boolean}
  */
 export const AI_ENABLED = true;
@@ -73,6 +82,7 @@ export const AI_ENABLED = true;
 /**
  * AI に判定させるカテゴリ。name は判定結果の表示に使い、description は AI への判定基準の説明になる。
  * 変更すると過去の判定結果のキャッシュは使われなくなり、判定し直す。
+ * 「値」タブの aiCategories で上書きできる（同じ形の配列で書く）。
  * @type {{ name: string, description: string }[]}
  */
 export const AI_CATEGORIES = [
@@ -109,6 +119,7 @@ export const AI_CATEGORIES = [
  * そのぶん隠すコメントが多いほど判定に時間がかかる。
  * 隠さないとされたコメントは判定し直さないので、同じバッチの他のコメントの指示で表示にされうる。
  * 変更すると過去の判定結果のキャッシュは使われなくなり、判定し直す（方式を比べられるようにするため）。
+ * 「値」タブの aiBatchSize で上書きできる。
  * @type {number}
  */
 export const AI_BATCH_SIZE = 1;
@@ -126,6 +137,7 @@ export const AI_CONCURRENCY = 1;
  * 1 バッチの判定にかける時間の上限（ミリ秒）。
  * 実測の所要時間（docs/spike.md）に、端末の負荷による揺れを見込んだ余裕を持たせる。
  * 超えたコメントは「判定待ち」として扱い、1 回だけ判定し直す。
+ * 「値」タブの aiTimeoutMs で上書きできる。
  * @type {number}
  */
 export const AI_TIMEOUT_MS = 30000;
@@ -133,6 +145,7 @@ export const AI_TIMEOUT_MS = 30000;
 /**
  * AI に渡す 1 コメントの本文の最大文字数。超えた分は切り捨てる。
  * セッションの入力枠を長文 1 件で使い切らないようにするため。
+ * 「値」タブの aiMaxChars で上書きできる。
  * @type {number}
  */
 export const AI_MAX_CHARS = 500;
@@ -140,6 +153,7 @@ export const AI_MAX_CHARS = 500;
 /**
  * AI の判定結果を保存しておく件数の上限。超えたら最後に使った時期が古いものから捨てる。
  * 保存は全件をまとめて書き込むため、件数が増えるほど 1 回の書き込みが重くなる。
+ * 「値」タブの aiCacheMaxEntries で上書きできる。
  * @type {number}
  */
 export const AI_CACHE_MAX_ENTRIES = 5000;
@@ -147,6 +161,7 @@ export const AI_CACHE_MAX_ENTRIES = 5000;
 /**
  * 表示するコメントで、既定で見せる文頭の文字数（全角文字の幅で数える目安）。
  * 1 行に収まる短いコメントでも全文が見えないようにするため。ホバーで 4 行、クリックで全文になる。
+ * 「値」タブの previewChars で上書きできる。
  * @type {number}
  */
 export const PREVIEW_CHARS = 25;
@@ -154,6 +169,7 @@ export const PREVIEW_CHARS = 25;
 /**
  * マウスを乗せてから、続きを見せ始めるまでの待ち時間（ミリ秒）。
  * スクロール中にマウスが通り過ぎただけで見え始めないようにするため。
+ * 「値」タブの revealDelayMs で上書きできる。
  * @type {number}
  */
 export const REVEAL_DELAY_MS = 300;
@@ -161,12 +177,14 @@ export const REVEAL_DELAY_MS = 300;
 /**
  * マウスを乗せたとき、続きを 1 行ぶん左から右へ見せるのにかける時間（ミリ秒）。4 行ぶんを読む順に見せる。
  * 不快だと判断した時点でマウスを外せば、残りは見えずに文頭だけの表示に戻る。
+ * 「値」タブの revealMsPerLine で上書きできる。
  * @type {number}
  */
 export const REVEAL_MS_PER_LINE = 700;
 
 /**
  * true にすると、判定の経過を DevTools の console に出す。
+ * 「値」タブの debug で上書きできる。
  * @type {boolean}
  */
 export const DEBUG = false;
