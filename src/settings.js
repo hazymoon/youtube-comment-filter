@@ -152,14 +152,17 @@ function checkStoredCategories(value) {
         category.name !== '' &&
         typeof category.description === 'string',
     );
-  return valid ? null : '{ "name": 空でない文字列, "description": 文字列 } を 1 つ以上並べた配列で書いてください';
+  if (!valid) return '{ "name": 空でない文字列, "description": 文字列 } を 1 つ以上並べた配列で書いてください';
+  // name は AI の応答の category の enum になる（src/ai.js の buildResponseSchema）ので、重複させない
+  const names = value.map((category) => category.name);
+  return new Set(names).size === names.length ? null : 'name が重複しないように書いてください';
 }
 
 /**
  * 設定ブロックの定数を上書きする値の表（値の名前 → 既定値・検査・読んだ値の写し方）。
  * 下限は、その値を下回ると動きが壊れる境目にする。
  * - aiEnabled / exemptOwner / exemptPinned / exemptVerified / debug: 真偽値
- * - aiCategories: { name: 空でない文字列, description: 文字列 } を 1 つ以上並べた配列。要素が 1 つでも不正なら全体を
+ * - aiCategories: { name: 空でない文字列, description: 文字列 } を 1 つ以上並べた配列で、name は重複しない。要素が 1 つでも不正なら全体を
  *   既定値に戻す（不正な要素だけを捨てると、利用者が隠したいカテゴリが黙って判定から抜けるため）
  * - aiBatchSize: 1 以上の整数（1 で 1 件ずつ判定する）
  * - aiTimeoutMs: 1 以上の整数（ミリ秒。0 以下では判定がすぐ打ち切られる）
