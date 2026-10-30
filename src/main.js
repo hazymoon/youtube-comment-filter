@@ -225,8 +225,9 @@ export function main() {
     getAiMode: () => lm.getState().mode,
     debugLog,
     onShown: (thread) => decorateThread(thread),
+    // detectImpersonation が false なら動画の投稿者を読まない（null を返し、なりすましを判定しない）
     getVideoOwner() {
-      scannedVideoOwner = readVideoOwner(doc, currentPageKind(), location.href);
+      scannedVideoOwner = options.detectImpersonation ? readVideoOwner(doc, currentPageKind(), location.href) : null;
       return scannedVideoOwner;
     },
   });
@@ -490,7 +491,7 @@ export function main() {
    * 判定したコメントを、コメント欄に変化が無くても判定し直すため。
    */
   function rescanIfVideoOwnerChanged() {
-    if (!commentsEl || !isTargetPage()) return;
+    if (!options.detectImpersonation || !commentsEl || !isTargetPage()) return;
     if (!sameVideoOwner(readVideoOwner(doc, currentPageKind(), location.href), scannedVideoOwner)) scheduleScan();
   }
 

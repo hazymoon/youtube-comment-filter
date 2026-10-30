@@ -308,7 +308,9 @@ export function judgeByRules(comment, rules, videoOwner = null) {
   if (comment.isReply && rules.matchMention({ text: comment.text, leadingMentionHref: comment.leadingMentionHref })) {
     return { reason: 'ngUser', detail: 'mention' };
   }
-  if (matchImpersonation(comment.author, videoOwner)) return { reason: 'ngUser', detail: 'impersonation' };
+  // 動画の投稿者が無い（読めないか、detectImpersonation で切った）ときは照合しない
+  if (videoOwner && matchImpersonation(comment.author, videoOwner))
+    return { reason: 'ngUser', detail: 'impersonation' };
   const wordMatch = rules.matchWord(comment.text);
   if (wordMatch) return { reason: 'ngWord', detail: wordMatch.word };
   const linkMatch = Array.isArray(comment.linkHrefs) ? rules.matchLink(comment.linkHrefs) : null;
