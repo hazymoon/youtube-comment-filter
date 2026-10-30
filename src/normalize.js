@@ -164,3 +164,21 @@ export function normalizeForMatch(text) {
     .normalize('NFC')
     .replace(COMBINING_MARK_PATTERN, '');
 }
+
+/**
+ * チャンネルの名前（ハンドル・表示名）を、なりすましの照合用に正規化する。
+ * NFKC → ラテン文字に見えるキリル文字・ギリシャ文字をラテン文字に（小文字化の前後で 2 回）→ 記号・空白・書式文字を除去
+ * （`.` `_` `-` と先頭の `@` もここで消える）→ NFC → 結合文字を除去、の順に行う。
+ * 本文の正規化（normalizeForMatch）と違い、文字体系の混在は見ずにすべて置き換える。名前は短く、すべての文字を
+ * キリル文字にした名前でも真似られるため、本物のロシア語の名前と取り違えるおそれより、すり抜けを防ぐ方を取る。
+ * 小文字化の前後で置き換えるのは foldMixedScriptLetters と同じ理由（大文字と小文字で似るラテン文字が違うか、無くなる文字がある）。
+ * カタカナとひらがなは区別したまま比べる（表示名の表記の違いは別の名前として扱う）。
+ * @param {string} name ハンドル（"@" 付きでもよい）か表示名
+ * @returns {string} 正規化した名前。記号だけの名前は空文字
+ */
+export function normalizeIdentityName(name) {
+  return replaceConfusableLetters(replaceConfusableLetters(toNfkc(name)).toLowerCase())
+    .replace(MATCH_NOISE_PATTERN, '')
+    .normalize('NFC')
+    .replace(COMBINING_MARK_PATTERN, '');
+}

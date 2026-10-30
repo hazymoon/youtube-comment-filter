@@ -8,6 +8,7 @@ import {
   AI_MAX_CHARS,
   AI_TIMEOUT_MS,
   DEBUG,
+  DETECT_IMPERSONATION,
   EXEMPT_OWNER,
   EXEMPT_PINNED,
   EXEMPT_VERIFIED,
@@ -34,6 +35,7 @@ const DEFAULTS = {
   exemptPinned: EXEMPT_PINNED,
   exemptVerified: EXEMPT_VERIFIED,
   debug: DEBUG,
+  detectImpersonation: DETECT_IMPERSONATION,
 };
 
 /**
@@ -59,7 +61,7 @@ test('値が無ければ（undefined / null）すべて config.js の既定値�
   assert.deepEqual(parseStoredOptions(readerOf(allNull)), { options: DEFAULTS, warnings: [] });
 });
 
-test('読むのは対象の 13 個の値の名前だけ', () => {
+test('読むのは対象の 14 個の値の名前だけ', () => {
   const keys = [];
   parseStoredOptions((key) => {
     keys.push(key);
@@ -84,6 +86,7 @@ test('正しい値はそのまま使う', () => {
     exemptPinned: false,
     exemptVerified: false,
     debug: true,
+    detectImpersonation: false,
   };
   assert.deepEqual(parseStoredOptions(readerOf(values)), { options: values, warnings: [] });
 });

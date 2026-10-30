@@ -92,7 +92,7 @@ div#main > div#header
 | コメント ID | `ytd-comment-view-model` の `.data.commentId`。DOM では `#published-time-text a` の `lc=` |
 | 投稿者のチャンネル ID | `ytd-comment-view-model` の `.polymerController.__data.commentEntity.author.channelId` |
 | 投稿者のハンドル | データ内には無い。`a#author-text` か `a#name` の href（`/@handle`） |
-| 表示名 | `.polymerController.__data.commentEntity.author.displayName`（判定には使わない） |
+| 表示名 | `.polymerController.__data.commentEntity.author.displayName`（なりすましの判定に使う。実測ではハンドルと同じ値） |
 | 投稿者が動画のチャンネル所有者か | `.polymerController.__data.commentEntity.author.isCreator`（boolean） |
 | 投稿者が認証済みのチャンネルか | `.polymerController.__data.commentEntity.author.isVerified`（boolean） |
 | 本文（原文） | `.polymerController.__data.commentEntity.properties.content.content`（文字列）。読めないときや空文字のときは `#content-text` の textContent |
@@ -122,3 +122,31 @@ ytd-shorts
 - 2026-10-28 に、パネルを開いたまま次の Shorts へ移ったあと、`ytd-comments` が作り直されていたことがあった（`ytd-shorts ytd-comments` は 1 つで、その中の thread は本スクリプトが判定していない状態、件数バーは DOM に無かった）。使い回されるとは限らないので、コメント欄は遷移のイベントを待たずに探し直す
 - 同じ日に、`yt-navigate-finish` の後の数百ミリ秒は、前の動画のコメント（本スクリプトが判定済みの thread）がまだ DOM に残っていることを確かめた。遷移の完了後の最初のスキャンは前の動画の thread を見るので、判定待ちのものは順番待ちに入りうる。AI に送るのは、取り出す時点で監視中のコメント欄に判定待ちのまま残っているものだけにする
 
+
+## 動画の投稿者
+
+なりすましの判定で、動画の投稿者のハンドルと表示名を読むための記録。2026-10-30 に、動画ページと Shorts のページ（Chrome、page 世界）で確認した。
+
+```text
+動画ページ
+ytd-watch-flexy[video-id="<videoId>"]
+└ … ytd-video-owner-renderer
+  ├ a[href="/@handle"]                            … 投稿者のハンドル（最初の /@ のリンク）
+  └ ytd-channel-name#channel-name … yt-formatted-string#text > a   … 表示名
+
+Shorts のページ
+ytd-shorts
+├ div#shorts-container … ytd-reel-video-renderer#reel-video-renderer
+│ └ … yt-reel-player-overlay-view-model … yt-reel-channel-bar-view-model
+│   └ span.ytReelChannelBarViewModelChannelName > a[href="/@handle/shorts"]   … ハンドル（文字列も @handle）
+└ div#anchored-panel > ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-structured-description"]
+  └ … ytd-video-description-header-renderer > div#channel-info
+    ├ a[href="/@handle"]
+    └ ytd-channel-name#channel-name … yt-formatted-string#text   … 表示名
+```
+
+- 動画ページでは、ハンドルが `/@RickAstleyYT`、表示名が「Rick Astley」だった。`ytd-video-owner-renderer` は 1 つだけだった
+- Shorts では、画面に出る投稿者の行（`yt-reel-channel-bar-view-model`）の文字列はハンドルで、表示名は概要欄のパネルの見出しにだけあった。概要欄のパネルは閉じていても（`visibility="ENGAGEMENT_PANEL_VISIBILITY_HIDDEN"`）DOM にあり、次の Shorts へ移ると中身が入れ替わった。`#channel-name` の textContent はツールチップの分も含んで表示名が 2 回入るので、`yt-formatted-string#text` から読む
+- Shorts の `ytd-reel-video-renderer` は 1 つだけで、次の Shorts へ移っても同じ要素が使い回された
+- 動画ページで関連動画へ移ると、`ytd-watch-flexy` の `video-id` 属性と投稿者の要素は同じ時点（100 ミリ秒ごとに見て同じ回）で新しい動画のものに変わった。それより前は URL だけが新しい動画を指し、投稿者は前の動画のままだった。投稿者は `video-id` が URL の `v=` と一致するときだけ読む
+- Shorts で次の動画へ移ると、URL と `ytd-reel-video-renderer` の `.data.command.reelWatchEndpoint.videoId` が先に変わり（`yt-navigate-finish` の直前）、投稿者の行と概要欄の見出しは 100〜900 ミリ秒ほど遅れて変わった（2 回の測定）。投稿者の要素にも概要欄のデータにも動画 ID は無く、読んだ投稿者がいまの動画のものかは確かめられない。遷移の直後は前の動画の投稿者を読みうる。投稿者の要素はコメント欄の外にあり、変化がコメント欄の監視に届かないので、document の変化のたびに投稿者を読み直し、前のスキャンが判定に使ったものと違えばスキャンして判定し直す

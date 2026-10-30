@@ -2,7 +2,7 @@
  * @file NG ユーザ・NG ワードによるルール判定。
  */
 
-import { normalizeForMatch, toNfkc } from './normalize.js';
+import { normalizeForMatch, normalizeIdentityName, toNfkc } from './normalize.js';
 
 const CHANNEL_ID_PATTERN = /^UC[0-9A-Za-z_-]{22}$/;
 const MENTION_HREF_HANDLE_PATTERN = /^\/@([^/]+)/;
@@ -223,8 +223,68 @@ export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [], allo
 }
 
 /**
+ * なりすましの照合に使う動画の投稿者の名前の、正規化した後の最小の文字数。
+ * 短い名前は、別人のハンドル・表示名がたまたま同じになりやすいため照合に使わない
+ */
+const MIN_IMPERSONATED_NAME_CHARS = 3;
+
+/** @type {WeakMap<object, Set<string>>} 動画の投稿者ごとの、照合に使う正規化した名前 */
+const impersonatedNamesCache = new WeakMap();
+
+/**
+ * 動画の投稿者の、照合に使う正規化した名前（MIN_IMPERSONATED_NAME_CHARS 文字未満のものは除く）を返す。
+ * 投稿者のオブジェクトごとに一度だけ作る。scanner.js は投稿者が変わるまで同じオブジェクトを渡すので、
+ * コメントごとに作り直さない。
+ * @param {VideoOwner} videoOwner 動画の投稿者
+ * @returns {Set<string>}
+ */
+function impersonatedNamesOf(videoOwner) {
+  let names = impersonatedNamesCache.get(videoOwner);
+  if (!names) {
+    names = new Set(
+      [videoOwner.handle, videoOwner.displayName]
+        .filter((name) => typeof name === 'string')
+        .map(normalizeIdentityName)
+        .filter((name) => [...name].length >= MIN_IMPERSONATED_NAME_CHARS),
+    );
+    impersonatedNamesCache.set(videoOwner, names);
+  }
+  return names;
+}
+
+/**
+ * @typedef {object} VideoOwner 動画の投稿者（owner.js の readVideoOwner）
+ * @property {string|null} handle "@" 付きのハンドル
+ * @property {string|null} displayName 表示名
+ */
+
+/**
+ * コメントの投稿者が、動画の投稿者になりすましているか。
+ * コメントの投稿者のハンドルか表示名を正規化したもの（normalizeIdentityName）が、動画の投稿者のハンドルか表示名を
+ * 正規化したものと完全に一致し、投稿者本人ではないときに一致とする。部分一致や似た綴りは見ない（別人を隠さないため）。
+ * 本人かは isOwner に加え、ハンドルが同じか（normalizeHandle）でも見る。ハンドルはチャンネルごとに重複しないので、
+ * isOwner のデータが届く前の本人のコメントを隠さないため。
+ * コメントの投稿者のハンドルを読めないときは判定しない。本人かを確かめられず、隠した後に判定し直す契機も無い
+ * （動画ページでは、ハンドルや isOwner が遅れて届いても判定から外す結果が変わらなければ判定し直さない）ため。
+ * @param {{ handle?: string|null, displayName?: string|null, isOwner?: boolean }} author コメントの投稿者
+ * @param {VideoOwner|null|undefined} videoOwner 動画の投稿者。読めないときは null
+ * @returns {boolean}
+ */
+export function matchImpersonation(author, videoOwner) {
+  if (!author || !videoOwner || author.isOwner || typeof author.handle !== 'string') return false;
+  if (typeof videoOwner.handle === 'string' && normalizeHandle(author.handle) === normalizeHandle(videoOwner.handle)) {
+    return false;
+  }
+  const ownerNames = impersonatedNamesOf(videoOwner);
+  if (ownerNames.size === 0) return false;
+  return [author.handle, author.displayName]
+    .filter((name) => typeof name === 'string')
+    .some((name) => ownerNames.has(normalizeIdentityName(name)));
+}
+
+/**
  * @typedef {object} RuleComment
- * @property {{ handle?: string|null, channelId?: string|null }} author 投稿者
+ * @property {{ handle?: string|null, channelId?: string|null, displayName?: string|null, isOwner?: boolean }} author 投稿者
  * @property {string} text 本文
  * @property {boolean} [isReply] 返信か
  * @property {string|null} [leadingMentionHref] 本文の先頭にあるリンクの href
@@ -233,19 +293,24 @@ export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [], allo
 
 /**
  * コメントをルールで判定する。
- * 優先順位は、投稿者が NG ユーザ → 返信の宛先が NG ユーザ（返信のときだけ）→ NG ワード → 許可外のドメインへのリンク。
+ * 優先順位は、投稿者が NG ユーザ → 返信の宛先が NG ユーザ（返信のときだけ）→ 動画の投稿者へのなりすまし → NG ワード → 許可外のドメインへのリンク。
+ * なりすましは NG ユーザとして数える（件数バーの内訳を増やさないため）。
  * @param {RuleComment} comment コメント
  * @param {CompiledRules} rules compileRules の結果
+ * @param {VideoOwner|null} [videoOwner] 動画の投稿者。読めないときは null で、なりすましの判定をしない
  * @returns {{ reason: 'ngUser'|'ngWord'|null, detail?: string }}
- *   detail は ngUser なら 'handle' | 'channelId' | 'mention'、ngWord なら一致した設定値か 'link:<ホスト名>'。
+ *   detail は ngUser なら 'handle' | 'channelId' | 'mention' | 'impersonation'、ngWord なら一致した設定値か 'link:<ホスト名>'。
  *   許可外のリンクは件数バーで NG ワードに数える（利用者が書いた許可リストによる判定のため）
  */
-export function judgeByRules(comment, rules) {
+export function judgeByRules(comment, rules, videoOwner = null) {
   const userMatch = rules.matchUser(comment.author);
   if (userMatch) return { reason: 'ngUser', detail: userMatch };
   if (comment.isReply && rules.matchMention({ text: comment.text, leadingMentionHref: comment.leadingMentionHref })) {
     return { reason: 'ngUser', detail: 'mention' };
   }
+  // 動画の投稿者が無い（読めないか、detectImpersonation で切った）ときは照合しない
+  if (videoOwner && matchImpersonation(comment.author, videoOwner))
+    return { reason: 'ngUser', detail: 'impersonation' };
   const wordMatch = rules.matchWord(comment.text);
   if (wordMatch) return { reason: 'ngWord', detail: wordMatch.word };
   const linkMatch = Array.isArray(comment.linkHrefs) ? rules.matchLink(comment.linkHrefs) : null;

@@ -72,6 +72,14 @@ export const EXEMPT_PINNED = true;
 export const EXEMPT_VERIFIED = true;
 
 /**
+ * 動画の投稿者になりすましたコメント（ハンドルか表示名を記号や似た文字で真似たもの）を NG ユーザとして隠すか。
+ * よくある名前の投稿者の動画で無関係なコメントが隠れるときは false にする。false のときは動画の投稿者も読まない。
+ * 「値」タブの detectImpersonation で上書きできる。
+ * @type {boolean}
+ */
+export const DETECT_IMPERSONATION = true;
+
+/**
  * 端末内の AI（Chrome の Prompt API）で不快なコメントを判定するか。
  * false にするか、端末で AI が使えないときは、NG_USERS と NG_WORDS だけで判定する。
  * 「値」タブの aiEnabled で上書きできる。

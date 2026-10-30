@@ -6,6 +6,7 @@
 import { countStates, decideState } from './decide.js';
 import { extractComment, extractLinkHrefs, isInsideHiddenThread } from './dom.js';
 import { hashString } from './hash.js';
+import { readCommentAuthorDisplayName, sameVideoOwner } from './owner.js';
 import { judgeByRules, judgeExemption } from './rules.js';
 import {
   EXEMPTION_ATTR,
@@ -138,6 +139,8 @@ function threadOfTarget(target) {
  *   （AI_HIDDEN_EXCERPT_CHARS 文字まで）だけを渡す
  * @param {(thread: Element) => void} [options.onShown] AI の判定で表示にした thread を受け取る。
  *   AI の判定はスキャンの外で反映されるため、スキャンで付けるもの（NG 登録のボタン）をここで付ける
+ * @param {() => (import('./rules.js').VideoOwner|null)} [options.getVideoOwner] いまの動画の投稿者（なりすましの判定に使う）。
+ *   スキャンのたびに読み直す。読めないときは null を返し、なりすましの判定をしない
  * @returns {ThreadProcessor}
  */
 export function createThreadProcessor({
@@ -147,12 +150,32 @@ export function createThreadProcessor({
   getAiMode,
   debugLog = () => {},
   onShown = () => {},
+  getVideoOwner = () => null,
 }) {
   let currentRules = rules;
-  /** ルールを差し替えた回数。thread ごとに、判定したときの rulesVersion を judgedRulesVersion に持つ */
+  /**
+   * ルールか動画の投稿者が変わった回数。thread ごとに、判定したときの rulesVersion を judgedRulesVersion に持つ。
+   * 動画の投稿者はルールと同じくコメントの外から判定を変えるので、変わったら確定済みのコメントも判定し直す
+   * （Shorts では遷移の直後に前の動画の投稿者を読みうるため。owner.js の readVideoOwner）。
+   * 投稿者の要素はコメント欄の外にあるので、変わったときのスキャンは main.js の rescanIfVideoOwnerChanged が起こす
+   */
   let rulesVersion = 0;
   /** @type {WeakMap<Element, number>} */
   const judgedRulesVersion = new WeakMap();
+  /** @type {import('./rules.js').VideoOwner|null} 前のスキャンで読んだ動画の投稿者 */
+  let videoOwner = null;
+
+  /**
+   * 動画の投稿者を読み直し、前のスキャンと変わっていたら判定し直す印を進める。
+   */
+  function refreshVideoOwner() {
+    const next = getVideoOwner() ?? null;
+    if (sameVideoOwner(next, videoOwner)) return;
+    debugLog('動画の投稿者', next?.handle ?? null, next?.displayName ?? null);
+    videoOwner = next;
+    rulesVersion += 1;
+  }
+
   /**
    * 隠した thread の理由の詳細（NG ワード・NG ユーザの照合の種類・AI のカテゴリ）。帯の文言に使う。
    * 利用者の NG ワードを YouTube のページの DOM に残さないよう、属性には書かずここに持つ
@@ -250,9 +273,14 @@ export function createThreadProcessor({
     const ruleResult =
       exemption === null
         ? judgeByRules(
-            // リンクの判定を使わないときは、本文のリンクを読まない（DOM の走査を増やさないため）
-            currentRules.linkFilterEnabled ? { ...extracted, linkHrefs: extractLinkHrefs(thread) } : extracted,
+            {
+              ...extracted,
+              author: { ...extracted.author, displayName: readCommentAuthorDisplayName(thread) },
+              // リンクの判定を使わないときは、本文のリンクを読まない（DOM の走査を増やさないため）
+              ...(currentRules.linkFilterEnabled ? { linkHrefs: extractLinkHrefs(thread) } : {}),
+            },
             currentRules,
+            videoOwner,
           )
         : { reason: null };
     if (settled && exemption === null && ruleResult.reason === null && keepsVerdictWithoutRules(thread)) {
@@ -283,6 +311,7 @@ export function createThreadProcessor({
   return {
     processThreads(threads) {
       const aiMode = getAiMode();
+      refreshVideoOwner();
       /** @type {{ id: string, text: string }[]} */
       const fresh = [];
       /** @type {{ id: string, text: string }[]} */

@@ -115,7 +115,7 @@ function parseYoutubeHref(href) {
  * @param {string|null|undefined} href "/@handle" 形式
  * @returns {string|null} "@" 付きのハンドル。取り出せなければ null
  */
-function handleFromHref(href) {
+export function handleFromHref(href) {
   const url = parseYoutubeHref(href);
   if (!url) return null;
   const match = HANDLE_PATH_PATTERN.exec(url.pathname);

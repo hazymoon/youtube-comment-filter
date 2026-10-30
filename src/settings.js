@@ -13,6 +13,7 @@ import {
   AI_MAX_CHARS,
   AI_TIMEOUT_MS,
   DEBUG,
+  DETECT_IMPERSONATION,
   EXEMPT_OWNER,
   EXEMPT_PINNED,
   EXEMPT_VERIFIED,
@@ -114,6 +115,7 @@ export function appendStoredUser(value, entry) {
  * @property {boolean} exemptOwner EXEMPT_OWNER
  * @property {boolean} exemptPinned EXEMPT_PINNED
  * @property {boolean} exemptVerified EXEMPT_VERIFIED
+ * @property {boolean} detectImpersonation DETECT_IMPERSONATION
  * @property {boolean} debug DEBUG
  */
 
@@ -183,7 +185,7 @@ function checkStoredCategories(value) {
 /**
  * 設定ブロックの定数を上書きする値の表（値の名前 → 既定値・検査・読んだ値の写し方）。
  * 下限は、その値を下回ると動きが壊れる境目にする。
- * - aiEnabled / exemptOwner / exemptPinned / exemptVerified / debug: 真偽値
+ * - aiEnabled / exemptOwner / exemptPinned / exemptVerified / detectImpersonation / debug: 真偽値
  * - aiCategories: { name: 空でない文字列, description: 文字列 } を 1 つ以上並べた配列で、name は重複しない。要素が 1 つでも不正なら全体を
  *   既定値に戻す（不正な要素だけを捨てると、利用者が隠したいカテゴリが黙って判定から抜けるため）
  * - aiBatchSize: 1 以上 10 以下の整数（1 で 1 件ずつ判定する。上限は docs/spike.md で計測した件数）
@@ -215,6 +217,7 @@ const STORED_OPTION_SPECS = {
   exemptOwner: { defaultValue: EXEMPT_OWNER, check: checkStoredBoolean },
   exemptPinned: { defaultValue: EXEMPT_PINNED, check: checkStoredBoolean },
   exemptVerified: { defaultValue: EXEMPT_VERIFIED, check: checkStoredBoolean },
+  detectImpersonation: { defaultValue: DETECT_IMPERSONATION, check: checkStoredBoolean },
   debug: { defaultValue: DEBUG, check: checkStoredBoolean },
 };
 
