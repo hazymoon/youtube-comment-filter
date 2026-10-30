@@ -4,7 +4,7 @@
  */
 
 import { countStates, decideState } from './decide.js';
-import { extractComment, isInsideHiddenThread } from './dom.js';
+import { extractComment, extractLinkHrefs, isInsideHiddenThread } from './dom.js';
 import { hashString } from './hash.js';
 import { judgeByRules, judgeExemption } from './rules.js';
 import {
@@ -247,7 +247,14 @@ export function createThreadProcessor({
     const aiUnresolved = same && thread.getAttribute(REASON_ATTR) === 'ai-unresolved';
 
     /** @type {ReturnType<typeof judgeByRules>} */
-    const ruleResult = exemption === null ? judgeByRules(extracted, currentRules) : { reason: null };
+    const ruleResult =
+      exemption === null
+        ? judgeByRules(
+            // リンクの判定を使わないときは、本文のリンクを読まない（DOM の走査を増やさないため）
+            currentRules.linkFilterEnabled ? { ...extracted, linkHrefs: extractLinkHrefs(thread) } : extracted,
+            currentRules,
+          )
+        : { reason: null };
     if (settled && exemption === null && ruleResult.reason === null && keepsVerdictWithoutRules(thread)) {
       // ルールの差し替えで判定し直したが、新しいルールにも当たらない。AI の判定（表示・非表示）はルールに依らないので
       // そのまま保つ。キャッシュから消えていると判定待ちに戻って隠れ、AI に送り直すことになるため

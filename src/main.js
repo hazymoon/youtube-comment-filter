@@ -11,10 +11,12 @@ import { restoreFocusAfterHide } from './focus.js';
 import { createLanguageModelController } from './lm.js';
 import { createNavigationState, pageKindFromPathname } from './navigation.js';
 import {
+  ALLOW_LINK_DOMAINS_VALUE_KEY,
   ALLOW_USERS_VALUE_KEY,
   NG_USERS_VALUE_KEY,
   NG_WORDS_VALUE_KEY,
   appendStoredUser,
+  parseStoredLinkDomains,
   parseStoredOptions,
   parseStoredSettings,
 } from './settings.js';
@@ -140,15 +142,21 @@ function readStoredOptions() {
 
 /**
  * 設定ブロックと「値」タブの NG ユーザ・NG ワード・許可ユーザを合わせて照合器にする。設定の誤りは console に出す。
+ * 「値」の allowLinkDomains も読む。readStoredSettings と違い、まだ無い値を作らない（作ると機能が有効になるため）。
  * @returns {import('./rules.js').CompiledRules}
  */
 function buildRules() {
   const stored = readStoredSettings();
   for (const warning of stored.warnings) console.warn('[youtube-comment-filter]', warning);
+  const linkDomains = parseStoredLinkDomains(
+    typeof GM_getValue === 'function' ? GM_getValue(ALLOW_LINK_DOMAINS_VALUE_KEY) : undefined,
+  );
+  for (const warning of linkDomains.warnings) console.warn('[youtube-comment-filter]', warning);
   const rules = compileRules({
     ngUsers: [...NG_USERS, ...stored.ngUsers],
     ngWords: [...NG_WORDS, ...stored.ngWords],
     allowUsers: [...ALLOW_USERS, ...stored.allowUsers],
+    allowLinkDomains: linkDomains.domains,
   });
   for (const warning of rules.warnings) console.warn('[youtube-comment-filter]', warning);
   return rules;

@@ -76,7 +76,11 @@ export const CONTENT_TEXT_SELECTOR = '#content-text';
 /** 本文の代わりの取得先。確認済み（同上） */
 export const CONTENT_TEXT_FALLBACK_SELECTOR = '#expander yt-attributed-string[slot="content"]';
 
-/** 本文の中のリンク。@返信の宛先の判定に使う。確認済み（同上。宛先は先頭の a.ytAttributedStringLink） */
+/**
+ * 本文の中のリンク。@返信の宛先の判定と、許可したドメイン以外へのリンクの判定に使う。確認済み（同上。
+ * 宛先は先頭の a.ytAttributedStringLink、外部へのリンクも同じ class の /redirect）。class で絞らないのは、
+ * class が変わっても外部へのリンクを見落とさないため
+ */
 export const CONTENT_LINK_SELECTOR = 'a[href]';
 
 /** YouTube 自身の折りたたみ。確認済み（同上） */

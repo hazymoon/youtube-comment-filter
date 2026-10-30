@@ -100,17 +100,25 @@ function compileUsers(entries, label, warnings) {
  * @property {(text: string) => ({ word: string }|null)} matchWord 本文が NG ワードを含むか
  * @property {(reply: { text: string, leadingMentionHref?: string|null }) => boolean} matchMention
  *   返信の本文が NG ユーザ宛ての @メンションで始まるか
+ * @property {(hrefs: string[]) => ({ host: string }|null)} matchLink
+ *   本文のリンクに、許可したドメイン以外へのものがあるか（最初のもののホスト名を返す）。allowLinkDomains が無ければ常に null
+ * @property {boolean} linkFilterEnabled allowLinkDomains を指定したか。false なら呼び出し側は本文のリンクを読まなくてよい
  */
 
 /**
  * 設定の NG ユーザ・NG ワード・許可ユーザを照合器にする。
  * 不正な要素は例外にせず捨て、理由を warnings に入れる（設定の 1 か所の誤りでスクリプト全体を止めないため）。
- * @param {{ ngUsers?: unknown[], ngWords?: unknown[], allowUsers?: unknown[] }} config NG_USERS・NG_WORDS・ALLOW_USERS
+ * @param {{ ngUsers?: unknown[], ngWords?: unknown[], allowUsers?: unknown[], allowLinkDomains?: string[]|null }} config
+ *   NG_USERS・NG_WORDS・ALLOW_USERS と、「値」の allowLinkDomains（settings.js の parseStoredLinkDomains の結果。null なら無効）
  * @returns {CompiledRules}
  */
-export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [] } = {}) {
+export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [], allowLinkDomains = null } = {}) {
   /** @type {string[]} */
   const warnings = [];
+  // 常に許可するドメインと合わせ、照合用の形にしておく（照合のたびに作り直さないため）。null なら無効
+  const allowedLinkDomains = Array.isArray(allowLinkDomains)
+    ? [...ALWAYS_ALLOWED_LINK_DOMAINS, ...allowLinkDomains].map(normalizeLinkHost)
+    : null;
   const { handles, channelIds } = compileUsers(ngUsers, 'NG_USERS', warnings);
   const allowed = compileUsers(allowUsers, 'ALLOW_USERS', warnings);
   /** @type {{ normalized: string, label: string }[]} */
@@ -199,6 +207,18 @@ export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [] } = {
       const textMatch = LEADING_MENTION_TEXT_PATTERN.exec(toNfkc(reply.text).trimStart());
       return textMatch !== null && isNgHandle(textMatch[1]);
     },
+
+    linkFilterEnabled: allowedLinkDomains !== null,
+
+    matchLink(hrefs) {
+      if (allowedLinkDomains === null) return null;
+      for (const href of hrefs) {
+        for (const host of linkTargetHosts(href)) {
+          if (!allowedLinkDomains.some((domain) => isHostInDomain(host, domain))) return { host };
+        }
+      }
+      return null;
+    },
   };
 }
 
@@ -208,15 +228,17 @@ export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [] } = {
  * @property {string} text 本文
  * @property {boolean} [isReply] 返信か
  * @property {string|null} [leadingMentionHref] 本文の先頭にあるリンクの href
+ * @property {string[]} [linkHrefs] 本文の中のリンクの href（dom.js の extractLinkHrefs）
  */
 
 /**
  * コメントをルールで判定する。
- * 優先順位は、投稿者が NG ユーザ → 返信の宛先が NG ユーザ（返信のときだけ）→ NG ワード。
+ * 優先順位は、投稿者が NG ユーザ → 返信の宛先が NG ユーザ（返信のときだけ）→ NG ワード → 許可外のドメインへのリンク。
  * @param {RuleComment} comment コメント
  * @param {CompiledRules} rules compileRules の結果
  * @returns {{ reason: 'ngUser'|'ngWord'|null, detail?: string }}
- *   detail は ngUser なら 'handle' | 'channelId' | 'mention'、ngWord なら一致した設定値
+ *   detail は ngUser なら 'handle' | 'channelId' | 'mention'、ngWord なら一致した設定値か 'link:<ホスト名>'。
+ *   許可外のリンクは件数バーで NG ワードに数える（利用者が書いた許可リストによる判定のため）
  */
 export function judgeByRules(comment, rules) {
   const userMatch = rules.matchUser(comment.author);
@@ -226,6 +248,8 @@ export function judgeByRules(comment, rules) {
   }
   const wordMatch = rules.matchWord(comment.text);
   if (wordMatch) return { reason: 'ngWord', detail: wordMatch.word };
+  const linkMatch = Array.isArray(comment.linkHrefs) ? rules.matchLink(comment.linkHrefs) : null;
+  if (linkMatch) return { reason: 'ngWord', detail: `link:${linkMatch.host}` };
   return { reason: null };
 }
 
@@ -250,4 +274,94 @@ export function judgeExemption(comment, rules, options) {
   if (options.verified && comment.author.isVerified) return 'verified';
   if (rules.matchAllowedUser(comment.author)) return 'allowUser';
   return null;
+}
+
+/** 常に許可するドメイン（サブドメインを含む）。YouTube 内のリンクは @メンション・時刻リンクなどで、隠す対象ではない */
+const ALWAYS_ALLOWED_LINK_DOMAINS = ['youtube.com', 'youtu.be'];
+
+/**
+ * YouTube の /redirect を剥がす回数の上限。/redirect の飛び先にさらに /redirect を書いて、外側だけを見る判定を
+ * すり抜けられないように剥がすが、際限なく続けないようにする
+ */
+const MAX_REDIRECT_UNWRAP = 5;
+
+/**
+ * 飛び先を確かめられない /redirect（入れ子が MAX_REDIRECT_UNWRAP を超えた、q が無い・読めない）に返すホスト名の代わり。
+ * 許可リストのどのドメインにも一致しない形なので許可外になり、judgeByRules の detail（link:www.youtube.com/redirect）で
+ * 理由が分かる
+ */
+const UNVERIFIED_REDIRECT_HOST = 'www.youtube.com/redirect';
+
+/**
+ * ホスト名を照合用の形にする（小文字・末尾のドットを除く）。URL の hostname は小文字・punycode になっている。
+ * @param {string} host ホスト名
+ * @returns {string}
+ */
+function normalizeLinkHost(host) {
+  return host.toLowerCase().replace(/\.$/, '');
+}
+
+/**
+ * ホスト名がドメインそのものか、そのサブドメインか。
+ * @param {string} host 照合用の形のホスト名
+ * @param {string} domain 照合用の形のドメイン
+ * @returns {boolean}
+ */
+function isHostInDomain(host, domain) {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+/**
+ * 本文のリンクの飛び先のホスト名を求める。YouTube の外部リンクは /redirect?…&q=<URL> になっているので、q の URL を見る
+ * （docs/dom-structure.md「本文のリンク」）。相対パスは YouTube 内なので www.youtube.com になる。
+ * q が複数あるときは全部見る（先頭だけを見ると、許可したドメインの q を前に置いて許可外の q をすり抜けさせられるため）。
+ * 壊れた URL・ホスト名の無いリンク（mailto: など）は判定しないので含めない。飛び先を確かめられない /redirect は
+ * UNVERIFIED_REDIRECT_HOST を含める（hostsOfUrl）。
+ * @param {unknown} href リンクの href
+ * @returns {string[]} 照合用の形のホスト名
+ */
+function linkTargetHosts(href) {
+  if (typeof href !== 'string' || href === '') return [];
+  let url;
+  try {
+    url = new URL(href, 'https://www.youtube.com');
+  } catch {
+    return [];
+  }
+  return hostsOfUrl(url, 0);
+}
+
+/**
+ * URL の飛び先のホスト名を、YouTube の /redirect を剥がしながら集める。
+ * @param {URL} url 対象
+ * @param {number} unwrapped ここまでに剥がした回数
+ * @returns {string[]} 照合用の形のホスト名
+ */
+function hostsOfUrl(url, unwrapped) {
+  const host = normalizeLinkHost(url.hostname);
+  if (url.pathname !== '/redirect' || !isHostInDomain(host, 'youtube.com')) return host === '' ? [] : [host];
+  // 上限を超えて入れ子になった /redirect は、飛び先を確かめられないが許可外として扱う（UNVERIFIED_REDIRECT_HOST）。
+  // 壊れた URL を判定しないのは、利用者が書いたリンクの書き損じを隠さないためだが、深い入れ子は判定を
+  // すり抜けるために作られたものとみなせるので、隠さない側に倒すとそのまま抜け道になる
+  if (unwrapped >= MAX_REDIRECT_UNWRAP) return [UNVERIFIED_REDIRECT_HOST];
+  // q が無い・空・絶対 URL として読めない・ホスト名が無い /redirect も許可外として扱う。YouTube 自身が作る /redirect は
+  // 必ず読める q（http(s) の絶対 URL）を持つので、読めないものは手で作ったものとみなせる。判定しないと、
+  // ブラウザやリダイレクトの先が解釈できる形（//evil.example など）で許可外のドメインへ飛ばせてしまう
+  const targets = url.searchParams.getAll('q');
+  if (targets.length === 0) return [UNVERIFIED_REDIRECT_HOST];
+  /** @type {string[]} */
+  const hosts = [];
+  for (const target of targets) {
+    let next;
+    try {
+      // q は絶対 URL。相対として解釈すると YouTube 内に化けて許可されるので、基準の URL を渡さない
+      next = new URL(target);
+    } catch {
+      hosts.push(UNVERIFIED_REDIRECT_HOST);
+      continue;
+    }
+    const nextHosts = hostsOfUrl(next, unwrapped + 1);
+    hosts.push(...(nextHosts.length === 0 ? [UNVERIFIED_REDIRECT_HOST] : nextHosts));
+  }
+  return hosts;
 }
