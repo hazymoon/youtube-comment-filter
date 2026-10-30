@@ -5,7 +5,7 @@
 import { cacheVersion } from './ai.js';
 import { createAiCache } from './cache.js';
 import { ALLOW_USERS, NG_USERS, NG_WORDS } from './config.js';
-import { buildCountText, buildStatusText } from './decide.js';
+import { buildCountText, buildReasonText, buildStatusText } from './decide.js';
 import { directChildById, extractComment, findOwnExpanderContent, findOwnViewModel } from './dom.js';
 import { restoreFocusAfterHide } from './focus.js';
 import { createLanguageModelController } from './lm.js';
@@ -34,6 +34,9 @@ import {
   NAVIGATE_FINISH_EVENT,
   NAVIGATE_START_EVENT,
   OPEN_ATTR,
+  REASON_ATTR,
+  REASONS_ATTR,
+  REVEALED_ATTR,
   SHORTS_ATTR,
   SHORTS_COMMENTS_SELECTOR,
   STATE_ATTR,
@@ -43,7 +46,16 @@ import {
   WATCH_COMMENTS_SELECTOR,
 } from './selectors.js';
 import { buildStyles } from './styles.js';
-import { createCountBar, ensureBlockButton, isBlockButtonInsertion, syncBodyControl } from './ui.js';
+import {
+  createCountBar,
+  ensureBlockButton,
+  ensureReasonStrip,
+  isBlockButtonInsertion,
+  isReasonStripMutation,
+  moveFocusOffReasonStrip,
+  reasonStripOfKeyEvent,
+  syncBodyControl,
+} from './ui.js';
 
 /** GM_setValue に保存するキャッシュのキー */
 const CACHE_STORAGE_KEY = 'aiCache';
@@ -223,6 +235,8 @@ export function main() {
       ),
     onVerdict(id, verdict, item) {
       const { needsRescan } = processor.applyVerdict(currentThreads(), id, verdict, item);
+      // AI の判定で隠した thread にも、スキャンを待たずに理由の帯を付ける（表示にしたものは onShown で付く）
+      if (verdict.hide) decorateThreadsOf(id);
       if (needsRescan) scheduleScan();
       renderBar();
     },
@@ -251,6 +265,18 @@ export function main() {
       lm.activate();
       if (doc.documentElement.hasAttribute(OPEN_ATTR)) doc.documentElement.removeAttribute(OPEN_ATTR);
       else doc.documentElement.setAttribute(OPEN_ATTR, '');
+      renderBar();
+    },
+    onToggleReasons() {
+      // 状態はページの中だけに持つ（保存しない）
+      const reasons = doc.documentElement.toggleAttribute(REASONS_ATTR);
+      // 閉じると帯が消えるので、帯にフォーカスがあれば先に「理由を表示」のボタンへ移す
+      if (!reasons) moveFocusOffReasonStrip(doc.activeElement, bar.reasonsButton);
+      for (const thread of currentThreads()) {
+        // 一時表示は理由の表示を閉じたら戻す（次に開いたときに前の一時表示が残らないように）
+        if (!reasons) thread.removeAttribute(REVEALED_ATTR);
+        decorateThread(thread);
+      }
       renderBar();
     },
   });
@@ -303,6 +329,7 @@ export function main() {
       countText: buildCountText(processor.countThreads(currentThreads())),
       statusText: buildStatusText(lm.getState()),
       visible: isTargetPage() && commentsEl !== null,
+      reasons: doc.documentElement.hasAttribute(REASONS_ATTR),
     });
   }
 
@@ -342,9 +369,41 @@ export function main() {
    * @param {Element} thread ytd-comment-thread-renderer
    */
   function decorateThread(thread) {
-    const shown = thread.getAttribute(STATE_ATTR) === 'shown';
+    const state = thread.getAttribute(STATE_ATTR);
+    const shown = state === 'shown';
     if (shown) ensureBlockButton(findOwnViewModel(thread), doc, onBlockClick);
     syncBodyControl(findOwnExpanderContent(thread), shown, thread.hasAttribute(EXPANDED_ATTR));
+    // 理由の帯は、理由の表示を使っている間だけ差し込む（使わない人の thread には要素を足さない）。
+    // 隠していない thread の帯は CSS が隠すので、取り除かない
+    if (state === 'hidden' && doc.documentElement.hasAttribute(REASONS_ATTR)) {
+      const text = buildReasonText({
+        state,
+        reason: thread.getAttribute(REASON_ATTR),
+        detail: processor.detailOf(thread),
+      });
+      ensureReasonStrip(thread, doc, { text, expanded: thread.hasAttribute(REVEALED_ATTR) }, onReasonClick);
+    }
+  }
+
+  /**
+   * 監視中のコメント欄の、指定の ID のコメントの thread を飾り直す。
+   * @param {string} id コメント ID
+   */
+  function decorateThreadsOf(id) {
+    for (const thread of currentThreads()) if (thread.getAttribute(ID_ATTR) === id) decorateThread(thread);
+  }
+
+  /**
+   * 理由の帯のクリック。親コメントの一時表示を切り替える。判定の結果と件数は変えない。
+   * REVEALED_ATTR はコメント欄の監視の対象に入らないので、切り替えてもスキャンは回らない
+   * @param {HTMLElement} strip 押された帯
+   */
+  function onReasonClick(strip) {
+    const thread = strip.parentElement;
+    if (!thread || thread.tagName?.toLowerCase() !== THREAD_TAG) return;
+    if (!commentsEl || !commentsEl.contains(thread) || thread.getAttribute(STATE_ATTR) !== 'hidden') return;
+    thread.toggleAttribute(REVEALED_ATTR);
+    decorateThread(thread);
   }
 
   /** スキャンを予約する。予約済みなら重ねない。 */
@@ -433,7 +492,8 @@ export function main() {
    */
   function onCommentsMutation(records) {
     // NG 登録のボタンの差し込みは自分の変化なので除く（スキャンが差し込むたびにもう 1 回スキャンが回らないように）
-    const relevant = records.filter((record) => !isBlockButtonInsertion(record));
+    // 理由の帯の差し込みと文言の書き換えも同じく除く
+    const relevant = records.filter((record) => !isBlockButtonInsertion(record) && !isReasonStripMutation(record));
     if (relevant.length === 0) return;
     // 差し込まれた要素も渡す。target は差し込み先の親なので、差し込まれた thread は target からは見つからない。
     // hidden の変化の通知では target が変化した要素なので、それを含む thread を確かめる
@@ -530,6 +590,14 @@ export function main() {
    * @param {KeyboardEvent} event キー入力
    */
   function onDocumentKeydown(event) {
+    // 理由の帯を押す Enter・Space も、YouTube のショートカットに渡さず帯を押したことにする
+    const strip = reasonStripOfKeyEvent(event);
+    if (strip) {
+      event.preventDefault();
+      event.stopPropagation();
+      onReasonClick(strip);
+      return;
+    }
     if (event.key !== 'Enter' && event.key !== ' ') return;
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat || event.isComposing) return;
     const target = /** @type {any} */ (event.target);
