@@ -128,8 +128,26 @@ export const OPEN_ATTR = 'data-ycf-open';
 /** thread に付ける表示状態（'shown' | 'hidden' | 'pending'）。無い thread は判定前として隠す */
 export const STATE_ATTR = 'data-ycf-state';
 
+/**
+ * html 要素に付ける。付いている間は、隠したコメントを理由の帯（REASON_STRIP_CLASS）にして見せる。
+ * OPEN_ATTR と同じく html に置く。CSS がコメント欄の範囲ごとに条件を差し込めるのは html の条件だけのため（styles.js の forEachScope）
+ */
+export const REASONS_ATTR = 'data-ycf-reasons';
+
 /** thread に付ける状態の理由（decide.js の reason） */
 export const REASON_ATTR = 'data-ycf-reason';
+
+/**
+ * 隠した thread に付ける、理由の詳細。NG ユーザ・NG ワードは judgeByRules の detail、AI はカテゴリ。
+ * 詳細が無いときは付けない。帯の文言（decide.js の buildReasonText）に使う
+ */
+export const DETAIL_ATTR = 'data-ycf-detail';
+
+/**
+ * 隠した thread に付ける。理由の帯が押され、親コメントを一時的に見せている間だけ付ける。
+ * 判定の結果は変えない。コメント ID か本文が変わったら外す（scanner.js）
+ */
+export const REVEALED_ATTR = 'data-ycf-revealed';
 
 /** thread に付ける、判定したコメントの ID */
 export const ID_ATTR = 'data-ycf-id';
@@ -150,6 +168,9 @@ export const EXPANDED_ATTR = 'data-ycf-expanded';
 
 /** コメントに差し込む NG 登録のボタンの class */
 export const BLOCK_BUTTON_CLASS = 'ycf-block';
+
+/** 隠した thread の先頭に差し込む、理由の帯（button）の class */
+export const REASON_STRIP_CLASS = 'ycf-reason';
 
 /** 件数バーの要素の id */
 export const BAR_ID = 'ycf-bar';

@@ -7,7 +7,17 @@ import { countStates, decideState } from './decide.js';
 import { extractComment, isInsideHiddenThread } from './dom.js';
 import { hashString } from './hash.js';
 import { judgeByRules, judgeExemption } from './rules.js';
-import { EXEMPTION_ATTR, EXPANDED_ATTR, HASH_ATTR, ID_ATTR, REASON_ATTR, STATE_ATTR, THREAD_TAG } from './selectors.js';
+import {
+  DETAIL_ATTR,
+  EXEMPTION_ATTR,
+  EXPANDED_ATTR,
+  HASH_ATTR,
+  ID_ATTR,
+  REASON_ATTR,
+  REVEALED_ATTR,
+  STATE_ATTR,
+  THREAD_TAG,
+} from './selectors.js';
 
 /** AI が隠したコメントを DEBUG で出すときの本文の文字数の上限。誤判定かを見分けられる程度に短くする */
 const AI_HIDDEN_EXCERPT_CHARS = 60;
@@ -22,18 +32,43 @@ function exemptionRecordOf(exemption) {
 }
 
 /**
+ * 属性を値に合わせる。undefined なら取り除く。いまの値と同じなら書き込まない。
+ * @param {Element} thread ytd-comment-thread-renderer
+ * @param {string} name 属性名
+ * @param {string|undefined} value 値
+ */
+function syncThreadAttribute(thread, name, value) {
+  if (value === undefined) {
+    if (thread.hasAttribute(name)) thread.removeAttribute(name);
+  } else if (thread.getAttribute(name) !== value) {
+    thread.setAttribute(name, value);
+  }
+}
+
+/**
  * thread の表示状態の属性を書き換える。変わらない属性には触れない。
  * @param {Element} thread ytd-comment-thread-renderer
  * @param {'shown'|'hidden'|'pending'} state 表示状態
  * @param {string|undefined} reason 理由
+ * @param {string|undefined} [detail] 理由の詳細（DETAIL_ATTR。隠したときの帯の文言に使う）。省略すると取り除く
  */
-export function applyThreadState(thread, state, reason) {
+export function applyThreadState(thread, state, reason, detail) {
   if (thread.getAttribute(STATE_ATTR) !== state) thread.setAttribute(STATE_ATTR, state);
-  if (reason === undefined) {
-    if (thread.hasAttribute(REASON_ATTR)) thread.removeAttribute(REASON_ATTR);
-  } else if (thread.getAttribute(REASON_ATTR) !== reason) {
-    thread.setAttribute(REASON_ATTR, reason);
-  }
+  syncThreadAttribute(thread, REASON_ATTR, reason);
+  syncThreadAttribute(thread, DETAIL_ATTR, detail);
+}
+
+/**
+ * 隠したときの理由の詳細を返す。ルールなら judgeByRules の detail、AI ならキャッシュのカテゴリ。隠さないときは undefined。
+ * @param {import('./decide.js').Decision} decision decideState の結果
+ * @param {{ detail?: string }} ruleResult judgeByRules の結果
+ * @param {{ category: string|null }|null} cached キャッシュの判定結果
+ * @returns {string|undefined}
+ */
+function detailOf(decision, ruleResult, cached) {
+  if (decision.state !== 'hidden') return undefined;
+  if (decision.reason === 'ai') return cached?.category ?? undefined;
+  return ruleResult.detail;
 }
 
 /**
@@ -159,6 +194,7 @@ export function createThreadProcessor({
         thread.removeAttribute(HASH_ATTR);
         thread.removeAttribute(EXEMPTION_ATTR);
         thread.removeAttribute(EXPANDED_ATTR);
+        thread.removeAttribute(REVEALED_ATTR);
       }
       if (thread.getAttribute(REASON_ATTR) !== 'unreadable') debugLog('読めないコメント', extracted.unreadable);
       applyThreadState(thread, 'pending', 'unreadable');
@@ -180,6 +216,8 @@ export function createThreadProcessor({
       thread.setAttribute(ID_ATTR, extracted.id);
       thread.setAttribute(HASH_ATTR, extracted.textHash);
       thread.removeAttribute(EXPANDED_ATTR);
+      // 一時表示は押したコメントに限る。要素が別のコメントに使い回されたら、判定前の本文を見せないよう外す
+      thread.removeAttribute(REVEALED_ATTR);
       // 投稿者を読めないと NG ユーザが効かない（表示のまま通る）。工程 3 で取得元の変化に気づけるよう記録する
       if (extracted.author.handle === null && extracted.author.channelId === null) {
         debugLog('投稿者を読めないコメント', extracted.id);
@@ -203,7 +241,7 @@ export function createThreadProcessor({
       aiMode !== 'failed';
     const cached = needsCache ? cache.get(extracted.id, extracted.textHash) : null;
     const decision = decideState({ extracted, ruleResult, aiMode, cached, aiUnresolved, exempt: exemption !== null });
-    applyThreadState(thread, decision.state, decision.reason);
+    applyThreadState(thread, decision.state, decision.reason, detailOf(decision, ruleResult, cached));
     judgedRulesVersion.set(thread, rulesVersion);
     if (decision.state !== 'pending' || !same) {
       debugLog('判定', extracted.id, decision.state, decision.reason ?? '', exemption ?? ruleResult.detail ?? '');
@@ -248,7 +286,7 @@ export function createThreadProcessor({
           continue;
         }
         if (thread.getAttribute(STATE_ATTR) !== 'pending') continue;
-        if (verdict.hide) applyThreadState(thread, 'hidden', 'ai');
+        if (verdict.hide) applyThreadState(thread, 'hidden', 'ai', verdict.category ?? undefined);
         else {
           applyThreadState(thread, 'shown', undefined);
           onShown(thread);
@@ -344,6 +382,7 @@ export function createThreadProcessor({
         thread.removeAttribute(STATE_ATTR);
         thread.removeAttribute(REASON_ATTR);
         thread.removeAttribute(EXPANDED_ATTR);
+        thread.removeAttribute(REVEALED_ATTR);
         debugLog('表示中のコメントが変わったので判定前に戻す', thread.getAttribute(ID_ATTR) ?? '');
       }
     },

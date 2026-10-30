@@ -14,7 +14,10 @@ import {
   MORE_BUTTON_SELECTOR,
   OPEN_ATTR,
   REASON_ATTR,
+  REASON_STRIP_CLASS,
+  REASONS_ATTR,
   REPLIES_ID,
+  REVEALED_ATTR,
   SHORTS_ATTR,
   SHORTS_COMMENTS_SELECTOR,
   STATE_ATTR,
@@ -161,6 +164,16 @@ export function buildStyles({
     ),
   );
   const hiddenThread = forEachScope((thread) => [`${thread}[${STATE_ATTR}="hidden"]`]);
+  // 理由の表示中（html の REASONS_ATTR）だけ、隠した thread を出して中身を隠し、先頭の帯（ui.js の ensureReasonStrip）を見せる。
+  // 基底の display:none は残して後ろで上書きする（html の条件の分だけ詳細度が高い）。帯が押されたら（REVEALED_ATTR）
+  // 親コメントを隠す規則だけを外し、返信は隠したままにする。親を見せる規則で display の値を決めず、YouTube の既定の表示に任せる
+  const reasonThreadOf = (withHtml) => `${withHtml(`[${REASONS_ATTR}]`)}[${STATE_ATTR}="hidden"]`;
+  const reasonThread = forEachScope((_thread, withHtml) => [reasonThreadOf(withHtml)]);
+  const reasonHiddenChildren = forEachScope((_thread, withHtml) => [
+    `${reasonThreadOf(withHtml)}:not([${REVEALED_ATTR}]) > #${COMMENT_CONTAINER_ID}`,
+    `${reasonThreadOf(withHtml)} > #${REPLIES_ID}`,
+  ]);
+  const reasonStrip = forEachScope((_thread, withHtml) => [`${reasonThreadOf(withHtml)} > .${REASON_STRIP_CLASS}`]);
   // NG 登録のボタンは、判定から外したもの以外の表示中のコメントにホバーしたとき、またはコメント内に
   // キーボードのフォーカスがあるときだけ見せる。:focus-within だとマウスのクリックで残ったフォーカスにも当たり、
   // クリック後にボタンが出たままになるので、:has(:focus-visible) を使う。
@@ -305,6 +318,43 @@ ${hiddenThread} {
   display: none !important;
 }
 
+/* 理由の帯。既定では見せず、理由の表示中の隠した thread でだけ見せる */
+.${REASON_STRIP_CLASS} {
+  display: none !important;
+}
+/* 理由の表示中: 隠した thread を出し、親コメントと返信を隠して帯だけを見せる */
+${reasonThread} {
+  display: block !important;
+}
+${reasonHiddenChildren} {
+  display: none !important;
+}
+${reasonStrip} {
+  display: block !important;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.4rem;
+  margin: 0;
+  padding: 0 0 0 56px;
+  border: none;
+  background: transparent;
+  color: ${barColor('subtext', 'light')};
+  font-family: "Roboto", "Arial", sans-serif;
+  font-size: 1.2rem;
+  line-height: 2.4rem;
+  text-align: left;
+  cursor: pointer;
+}
+html[dark] .${REASON_STRIP_CLASS} {
+  color: ${barColor('subtext', 'dark')};
+}
+.${REASON_STRIP_CLASS}:hover {
+  text-decoration: underline;
+}
+.${REASON_STRIP_CLASS}[aria-expanded="true"] {
+  font-weight: 500;
+}
+
 /* ホバーで見せる量。数値として登録し、transition で増やせるようにする */
 @property --ycf-reveal {
   syntax: '<number>';
@@ -446,6 +496,10 @@ ${blockButtonUnusable} {
 }
 #${BAR_ID} button:hover {
   background: ${barColor('buttonHover', 'light')};
+}
+#${BAR_ID} button[aria-pressed="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
 }
 #${BAR_ID} .ycf-status {
   color: ${barColor('subtext', 'light')};

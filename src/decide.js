@@ -137,3 +137,39 @@ export function buildStatusText(aiState) {
       return '';
   }
 }
+
+/** 帯の文言に入れる NG ワードの最大文字数。長い正規表現で帯が折り返して高さが変わらないようにする */
+const REASON_WORD_MAX_CHARS = 30;
+
+/** 許可していないリンクの detail の接頭辞（'link:<host>'） */
+const LINK_DETAIL_PREFIX = 'link:';
+
+/**
+ * 隠したコメントの理由の帯（ui.js の ensureReasonStrip）の文言を組み立てる。
+ * detail は、NG ユーザなら judgeByRules の照合の種類（'handle' | 'channelId' | 'mention' | 'impersonation'）、
+ * NG ワードなら一致した設定値か 'link:<host>'（許可していないリンク）、AI ならカテゴリ。
+ * 判定待ちと判定中は countStates と同じ分け方にする（件数バーの内訳と食い違わないように）。
+ * @param {{ state: string|null, reason: string|null, detail: string|null }} input thread の表示状態・理由・理由の詳細
+ * @returns {string}
+ */
+export function buildReasonText({ state, reason, detail }) {
+  if (state === 'pending') return reason === 'awaiting-ai' ? '判定中…' : '判定待ち';
+  if (reason === 'ngUser') {
+    if (detail === 'impersonation') return '投稿者へのなりすましで非表示';
+    if (detail === 'handle') return 'NG ユーザ（投稿者のハンドル）で非表示';
+    if (detail === 'channelId') return 'NG ユーザ（投稿者のチャンネル ID）で非表示';
+    if (detail === 'mention') return 'NG ユーザ（@返信の宛先）で非表示';
+    return 'NG ユーザで非表示';
+  }
+  if (reason === 'ngWord') {
+    if (detail?.startsWith(LINK_DETAIL_PREFIX)) {
+      return `許可していないリンク（${detail.slice(LINK_DETAIL_PREFIX.length)}）で非表示`;
+    }
+    if (!detail) return 'NG ワードで非表示';
+    const chars = [...detail];
+    const word = chars.length > REASON_WORD_MAX_CHARS ? `${chars.slice(0, REASON_WORD_MAX_CHARS).join('')}…` : detail;
+    return `NG ワード「${word}」で非表示`;
+  }
+  if (reason === 'ai') return detail ? `AI（${detail}）で非表示` : 'AI の判定で非表示';
+  return '非表示';
+}
