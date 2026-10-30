@@ -262,11 +262,15 @@ const NON_DOMAIN_CHARS = /[\s/\\:@?#*%]/;
 /**
  * ドメインの文字列を照合用の形（小文字・punycode。末尾のドットを除く）にする。リンクの照合で使う URL の hostname と
  * 同じ形にそろえるため、URL として解釈して hostname を取る。
+ * http:// / https:// 付きの値（アドレスバーから写したもの）はホスト名を取り出し、先頭の *. は取り除く
+ * （サブドメインは書かなくても許可するので、*. の有無で意味は変わらない）。取り出した結果は書いたドメインと同じ検査を通す。
  * @param {string} entry 利用者が書いたドメイン
  * @returns {string|null} 解釈できなければ null
  */
 function normalizeLinkDomain(entry) {
-  const trimmed = entry.trim().replace(/\.$/, '');
+  const candidate = linkDomainCandidate(entry.trim());
+  if (candidate === null) return null;
+  const trimmed = candidate.replace(/\.$/, '');
   if (trimmed === '' || trimmed.startsWith('.') || NON_DOMAIN_CHARS.test(trimmed)) return null;
   try {
     const host = new URL(`https://${trimmed}/`).hostname.replace(/\.$/, '');
@@ -275,6 +279,25 @@ function normalizeLinkDomain(entry) {
   } catch {
     return null;
   }
+}
+
+/**
+ * 書いた値から、ドメインとして検査する文字列を取り出す。http:// / https:// 付きならホスト名、先頭が *. ならその後ろ、
+ * ほかはそのまま返す。
+ * @param {string} entry 前後の空白を除いた値
+ * @returns {string|null} URL として読めないか、利用者名・パスワードを含むときは null
+ */
+function linkDomainCandidate(entry) {
+  if (/^https?:\/\//i.test(entry)) {
+    try {
+      const url = new URL(entry);
+      // 利用者名付きの URL（https://example.com@evil.example など）は、どちらのドメインのつもりか分からないので読まない
+      return url.username === '' && url.password === '' ? url.hostname : null;
+    } catch {
+      return null;
+    }
+  }
+  return entry.startsWith('*.') ? entry.slice(2) : entry;
 }
 
 /**
