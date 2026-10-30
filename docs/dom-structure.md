@@ -84,7 +84,7 @@ div#main > div#header
 | コメント ID | `ytd-comment-view-model` の `.data.commentId`。DOM では `#published-time-text a` の `lc=` |
 | 投稿者のチャンネル ID | `ytd-comment-view-model` の `.polymerController.__data.commentEntity.author.channelId` |
 | 投稿者のハンドル | データ内には無い。`a#author-text` か `a#name` の href（`/@handle`） |
-| 表示名 | `.polymerController.__data.commentEntity.author.displayName`（判定には使わない） |
+| 表示名 | `.polymerController.__data.commentEntity.author.displayName`（なりすましの判定に使う。実測ではハンドルと同じ値） |
 | 投稿者が動画のチャンネル所有者か | `.polymerController.__data.commentEntity.author.isCreator`（boolean） |
 | 投稿者が認証済みのチャンネルか | `.polymerController.__data.commentEntity.author.isVerified`（boolean） |
 | 本文（原文） | `.polymerController.__data.commentEntity.properties.content.content`（文字列）。読めないときや空文字のときは `#content-text` の textContent |
