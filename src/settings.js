@@ -249,3 +249,60 @@ export function parseStoredOptions(read) {
   }
   return { options: /** @type {StoredOptions} */ (options), warnings };
 }
+
+/**
+ * 値の名前。「値」タブにこの名前でドメインの文字列の配列を書く。書いたときだけ、許可したドメイン以外へのリンクを含むコメントを隠す。
+ * ngUsers などと違い、起動時に値を作らない（空の配列を作ると、YouTube 以外へのリンクを全部隠す設定になるため）
+ */
+export const ALLOW_LINK_DOMAINS_VALUE_KEY = 'allowLinkDomains';
+
+/** ドメインとして受け付けない文字（スキーム・パス・ポート・利用者名・クエリ・空白・ワイルドカード） */
+const NON_DOMAIN_CHARS = /[\s/\\:@?#*%]/;
+
+/**
+ * ドメインの文字列を照合用の形（小文字・punycode。末尾のドットを除く）にする。リンクの照合で使う URL の hostname と
+ * 同じ形にそろえるため、URL として解釈して hostname を取る。
+ * @param {string} entry 利用者が書いたドメイン
+ * @returns {string|null} 解釈できなければ null
+ */
+function normalizeLinkDomain(entry) {
+  const trimmed = entry.trim().replace(/\.$/, '');
+  if (trimmed === '' || trimmed.startsWith('.') || NON_DOMAIN_CHARS.test(trimmed)) return null;
+  try {
+    const host = new URL(`https://${trimmed}/`).hostname.replace(/\.$/, '');
+    return host === '' ? null : host;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 「値」の allowLinkDomains を読む。値が無いか配列でないときは無効（null）にする。
+ * 配列でない値を空の配列として扱うと、書き誤っただけで YouTube 以外へのリンクを含むコメントが全部隠れるため。
+ * 配列なら、要素を捨てて空になっても有効のまま（書いた人は機能を使うつもりなので）。
+ * 不正な要素は例外にせず捨て、理由を warnings に入れる（設定の 1 か所の誤りでスクリプト全体を止めないため）。
+ * @param {unknown} value GM_getValue で読んだ allowLinkDomains
+ * @returns {{ domains: string[]|null, warnings: string[] }}
+ */
+export function parseStoredLinkDomains(value) {
+  /** @type {string[]} */
+  const warnings = [];
+  if (value === undefined || value === null) return { domains: null, warnings };
+  if (!Array.isArray(value)) {
+    warnings.push(`値 ${ALLOW_LINK_DOMAINS_VALUE_KEY}: 文字列の配列ではないので無視しました（リンクでは隠しません）`);
+    return { domains: null, warnings };
+  }
+  /** @type {string[]} */
+  const domains = [];
+  for (const entry of readStringArray(value, ALLOW_LINK_DOMAINS_VALUE_KEY, warnings)) {
+    const domain = normalizeLinkDomain(entry);
+    if (domain === null) {
+      warnings.push(
+        `値 ${ALLOW_LINK_DOMAINS_VALUE_KEY}: "example.com" の形のドメインではないので無視しました: ${entry}`,
+      );
+    } else {
+      domains.push(domain);
+    }
+  }
+  return { domains, warnings };
+}
