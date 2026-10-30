@@ -65,12 +65,6 @@ test('buildReasonText は AI のカテゴリを示し、カテゴリが無けれ
   assert.equal(buildReasonText({ state: 'hidden', reason: 'ai', detail: null }), 'AI の判定で非表示');
 });
 
-test('buildReasonText は判定待ちと判定中を件数バーと同じ分け方で示す', () => {
-  assert.equal(buildReasonText({ state: 'pending', reason: 'unreadable', detail: null }), '判定待ち');
-  assert.equal(buildReasonText({ state: 'pending', reason: 'ai-unresolved', detail: null }), '判定待ち');
-  assert.equal(buildReasonText({ state: 'pending', reason: 'awaiting-ai', detail: null }), '判定中…');
-});
-
 test('件数バーの文言は変えない', () => {
   assert.equal(
     buildCountText({ ngUser: 1, ngWord: 2, ai: 3, pending: 4, judging: 0, total: 20 }),

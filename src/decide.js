@@ -148,12 +148,11 @@ const LINK_DETAIL_PREFIX = 'link:';
  * 隠したコメントの理由の帯（ui.js の ensureReasonStrip）の文言を組み立てる。
  * detail は、NG ユーザなら judgeByRules の照合の種類（'handle' | 'channelId' | 'mention' | 'impersonation'）、
  * NG ワードなら一致した設定値か 'link:<host>'（許可していないリンク）、AI ならカテゴリ。
- * 判定待ちと判定中は countStates と同じ分け方にする（件数バーの内訳と食い違わないように）。
+ * 帯は隠した thread にだけ付ける（判定待ちは styles.js の既存の帯が示す）ので、隠した理由だけを扱う。
  * @param {{ state: string|null, reason: string|null, detail: string|null }} input thread の表示状態・理由・理由の詳細
  * @returns {string}
  */
-export function buildReasonText({ state, reason, detail }) {
-  if (state === 'pending') return reason === 'awaiting-ai' ? '判定中…' : '判定待ち';
+export function buildReasonText({ reason, detail }) {
   if (reason === 'ngUser') {
     if (detail === 'impersonation') return '投稿者へのなりすましで非表示';
     if (detail === 'handle') return 'NG ユーザ（投稿者のハンドル）で非表示';
