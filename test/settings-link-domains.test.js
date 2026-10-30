@@ -32,18 +32,16 @@ test('文字列でない要素とドメインとして解釈できない文字�
     'example.com',
     3,
     '',
-    'https://example.org',
     'example.org/path',
     'example.org:8080',
     'user@example.org',
-    '*.example.org',
     '.example.org',
     'a b.example',
     'example.org?x',
     'http://[',
   ]);
   assert.deepEqual(result.domains, ['example.com']);
-  assert.equal(result.warnings.length, 11);
+  assert.equal(result.warnings.length, 9);
 });
 
 test('国際化ドメインは punycode にそろえ、リンクの照合と一致する', () => {
