@@ -220,17 +220,15 @@ const MIN_IMPERSONATED_NAME_CHARS = 3;
  * 正規化したものと完全に一致し、投稿者本人ではないときに一致とする。部分一致や似た綴りは見ない（別人を隠さないため）。
  * 本人かは isOwner に加え、ハンドルが同じか（normalizeHandle）でも見る。ハンドルはチャンネルごとに重複しないので、
  * isOwner のデータが届く前の本人のコメントを隠さないため。
+ * コメントの投稿者のハンドルを読めないときは判定しない。本人かを確かめられず、隠した後に判定し直す契機も無い
+ * （動画ページでは、ハンドルや isOwner が遅れて届いても判定から外す結果が変わらなければ判定し直さない）ため。
  * @param {{ handle?: string|null, displayName?: string|null, isOwner?: boolean }} author コメントの投稿者
  * @param {VideoOwner|null|undefined} videoOwner 動画の投稿者。読めないときは null
  * @returns {boolean}
  */
 export function matchImpersonation(author, videoOwner) {
-  if (!author || !videoOwner || author.isOwner) return false;
-  if (
-    typeof author.handle === 'string' &&
-    typeof videoOwner.handle === 'string' &&
-    normalizeHandle(author.handle) === normalizeHandle(videoOwner.handle)
-  ) {
+  if (!author || !videoOwner || author.isOwner || typeof author.handle !== 'string') return false;
+  if (typeof videoOwner.handle === 'string' && normalizeHandle(author.handle) === normalizeHandle(videoOwner.handle)) {
     return false;
   }
   const ownerNames = new Set(

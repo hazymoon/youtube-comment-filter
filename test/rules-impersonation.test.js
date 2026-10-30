@@ -119,3 +119,13 @@ test('NG ユーザの一致はなりすましより先に、NG ワードより�
     detail: 'spam',
   });
 });
+
+test('コメントの投稿者のハンドルを読めないときは、表示名が一致しても判定しない', () => {
+  // ハンドルのリンクが描かれる前は、本人かどうか（ハンドルが同じか）を確かめられないので隠さない
+  assert.deepEqual(judgeByRules(comment({ handle: null, displayName: 'Rick Astley' }), NO_RULES, OWNER), {
+    reason: null,
+  });
+  assert.deepEqual(judgeByRules(comment({ handle: undefined, displayName: '@RickAstleyYT' }), NO_RULES, OWNER), {
+    reason: null,
+  });
+});

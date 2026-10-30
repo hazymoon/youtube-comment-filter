@@ -150,3 +150,11 @@ test('動画の投稿者が変わらなければ、AI の判定を保つ', () =>
   assert.equal(thread.getAttribute(STATE_ATTR), 'hidden');
   assert.equal(thread.getAttribute(REASON_ATTR), 'ai');
 });
+
+test('ハンドルのリンクがまだ無いコメントは、表示名が動画の投稿者と同じでも隠さない', () => {
+  // 所有者の印（isCreator）もまだ届いていない本人のコメント。隠すと、動画ページでは判定し直す契機が無い
+  const { processor } = makeProcessor({ owner: RICK });
+  const thread = makeThread({ handle: '', author: { displayName: '@RickAstleyYT' } });
+  processor.processThreads([thread]);
+  assert.notEqual(thread.getAttribute(REASON_ATTR), 'ngUser');
+});
