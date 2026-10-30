@@ -41,3 +41,15 @@ test('正規表現の NG ワードもキリル文字で崩した本文に一致�
   const rules = compileRules({ ngWords: [/spam/] });
   assert.deepEqual(rules.matchWord(CYRILLIC_SPAM), { word: '/spam/' });
 });
+
+test('小文字にするとラテン文字に似なくなる大文字も、大文字の形で置き換える', () => {
+  // Cyrillic capital em / ve: their lowercase forms (м, в) do not look Latin
+  assert.equal(normalizeForMatch('SPAМ'), 'spam');
+  assert.equal(normalizeForMatch('ВAD'), 'bad');
+});
+
+test('大文字と小文字で似るラテン文字が違うギリシャ文字は、大文字の形で置き換える', () => {
+  // Greek capital nu / omicron / upsilon look like N / O / Y, while lowercase nu / upsilon look like v / u
+  assert.equal(normalizeForMatch('ΝΟ'), 'no');
+  assert.equal(normalizeForMatch('ΥES'), 'yes');
+});
