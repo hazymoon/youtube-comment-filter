@@ -73,11 +73,7 @@ function injectStyles(doc, options) {
   if (doc.getElementById(STYLE_ID)) return;
   const style = doc.createElement('style');
   style.id = STYLE_ID;
-  style.textContent = buildStyles({
-    previewChars: options.previewChars,
-    revealDelayMs: options.revealDelayMs,
-    revealMsPerLine: options.revealMsPerLine,
-  });
+  style.textContent = buildStyles(options);
   (doc.head ?? doc.documentElement).appendChild(style);
 }
 
