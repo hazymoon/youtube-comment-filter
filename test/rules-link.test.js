@@ -97,14 +97,7 @@ test('/redirect の先がさらに YouTube の /redirect なら、内側の飛�
 
 test('壊れた URL・q の無い /redirect・ホスト名の無いリンクは判定しない', () => {
   const rules = compileRules({ allowLinkDomains: [] });
-  assert.equal(
-    rules.matchLink([
-      'http://[',
-      'mailto:someone@evil.example',
-      '',
-    ]),
-    null,
-  );
+  assert.equal(rules.matchLink(['http://[', 'mailto:someone@evil.example', '']), null);
 });
 
 test('許可外のリンクが 1 つでもあれば、最初の許可外のホスト名を返す', () => {
