@@ -6,6 +6,7 @@
 import { countStates, decideState } from './decide.js';
 import { extractComment, isInsideHiddenThread } from './dom.js';
 import { hashString } from './hash.js';
+import { readCommentAuthorDisplayName } from './owner.js';
 import { judgeByRules, judgeExemption } from './rules.js';
 import { EXEMPTION_ATTR, EXPANDED_ATTR, HASH_ATTR, ID_ATTR, REASON_ATTR, STATE_ATTR, THREAD_TAG } from './selectors.js';
 
@@ -101,6 +102,8 @@ function threadOfTarget(target) {
  *   （AI_HIDDEN_EXCERPT_CHARS 文字まで）だけを渡す
  * @param {(thread: Element) => void} [options.onShown] AI の判定で表示にした thread を受け取る。
  *   AI の判定はスキャンの外で反映されるため、スキャンで付けるもの（NG 登録のボタン）をここで付ける
+ * @param {() => (import('./rules.js').VideoOwner|null)} [options.getVideoOwner] いまの動画の投稿者（なりすましの判定に使う）。
+ *   スキャンのたびに読み直す。読めないときは null を返し、なりすましの判定をしない
  * @returns {ThreadProcessor}
  */
 export function createThreadProcessor({
@@ -110,12 +113,30 @@ export function createThreadProcessor({
   getAiMode,
   debugLog = () => {},
   onShown = () => {},
+  getVideoOwner = () => null,
 }) {
   let currentRules = rules;
-  /** ルールを差し替えた回数。thread ごとに、判定したときの rulesVersion を judgedRulesVersion に持つ */
+  /**
+   * ルールか動画の投稿者が変わった回数。thread ごとに、判定したときの rulesVersion を judgedRulesVersion に持つ。
+   * 動画の投稿者はルールと同じくコメントの外から判定を変えるので、変わったら確定済みのコメントも判定し直す
+   * （Shorts では遷移の直後に前の動画の投稿者を読みうるため。owner.js の readVideoOwner）
+   */
   let rulesVersion = 0;
   /** @type {WeakMap<Element, number>} */
   const judgedRulesVersion = new WeakMap();
+  /** @type {import('./rules.js').VideoOwner|null} 前のスキャンで読んだ動画の投稿者 */
+  let videoOwner = null;
+
+  /**
+   * 動画の投稿者を読み直し、前のスキャンと変わっていたら判定し直す印を進める。
+   */
+  function refreshVideoOwner() {
+    const next = getVideoOwner() ?? null;
+    if (next?.handle === videoOwner?.handle && next?.displayName === videoOwner?.displayName) return;
+    debugLog('動画の投稿者', next?.handle ?? null, next?.displayName ?? null);
+    videoOwner = next;
+    rulesVersion += 1;
+  }
 
   /**
    * AI が隠したコメントのカテゴリと本文の冒頭を出す。隠したコメントを画面で確かめる手段が無いので、
@@ -188,7 +209,14 @@ export function createThreadProcessor({
     const aiUnresolved = same && thread.getAttribute(REASON_ATTR) === 'ai-unresolved';
 
     /** @type {ReturnType<typeof judgeByRules>} */
-    const ruleResult = exemption === null ? judgeByRules(extracted, currentRules) : { reason: null };
+    const ruleResult =
+      exemption === null
+        ? judgeByRules(
+            { ...extracted, author: { ...extracted.author, displayName: readCommentAuthorDisplayName(thread) } },
+            currentRules,
+            videoOwner,
+          )
+        : { reason: null };
     if (settled && exemption === null && ruleResult.reason === null && keepsVerdictWithoutRules(thread)) {
       // ルールの差し替えで判定し直したが、新しいルールにも当たらない。AI の判定（表示・非表示）はルールに依らないので
       // そのまま保つ。キャッシュから消えていると判定待ちに戻って隠れ、AI に送り直すことになるため
@@ -217,6 +245,7 @@ export function createThreadProcessor({
   return {
     processThreads(threads) {
       const aiMode = getAiMode();
+      refreshVideoOwner();
       /** @type {{ id: string, text: string }[]} */
       const fresh = [];
       /** @type {{ id: string, text: string }[]} */

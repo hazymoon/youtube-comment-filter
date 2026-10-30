@@ -156,3 +156,25 @@ export const BAR_ID = 'ycf-bar';
 
 /** style 要素の id */
 export const STYLE_ID = 'ycf-style';
+
+/**
+ * 動画ページの、いま表示している動画の ID を持つ WATCH_FLEXY_TAG の属性。確認済み（docs/dom-structure.md「動画の投稿者」）。
+ * 遷移の途中は URL だけが先に変わり、投稿者の要素は前の動画のままなので、これが URL の動画と一致するときだけ投稿者を読む
+ */
+export const WATCH_VIDEO_ID_ATTR = 'video-id';
+
+/** 動画ページの投稿者のリンク（href が /@handle）。WATCH_FLEXY_TAG の中で探す。確認済み（同上） */
+export const WATCH_OWNER_HANDLE_SELECTOR = 'ytd-video-owner-renderer a[href^="/@"]';
+
+/** 動画ページの投稿者の表示名。WATCH_FLEXY_TAG の中で探す。確認済み（同上） */
+export const WATCH_OWNER_NAME_SELECTOR = 'ytd-video-owner-renderer #channel-name yt-formatted-string#text';
+
+/** Shorts の投稿者の行のリンク（href が /@handle/shorts）。SHORTS_TAG の中で探す。確認済み（同上） */
+export const SHORTS_OWNER_HANDLE_SELECTOR = 'yt-reel-channel-bar-view-model a[href^="/@"]';
+
+/**
+ * Shorts の投稿者の表示名。閉じていても DOM にある概要欄のパネルの見出しにだけある。SHORTS_TAG の中で探す。確認済み（同上）。
+ * #channel-name の textContent はツールチップの分も含むので、その中の #text から読む
+ */
+export const SHORTS_OWNER_NAME_SELECTOR =
+  'ytd-video-description-header-renderer #channel-name yt-formatted-string#text';

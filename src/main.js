@@ -10,6 +10,7 @@ import { directChildById, extractComment, findOwnExpanderContent, findOwnViewMod
 import { restoreFocusAfterHide } from './focus.js';
 import { createLanguageModelController } from './lm.js';
 import { createNavigationState, pageKindFromPathname } from './navigation.js';
+import { readVideoOwner } from './owner.js';
 import {
   ALLOW_USERS_VALUE_KEY,
   NG_USERS_VALUE_KEY,
@@ -198,6 +199,7 @@ export function main() {
     getAiMode: () => lm.getState().mode,
     debugLog,
     onShown: (thread) => decorateThread(thread),
+    getVideoOwner: () => readVideoOwner(doc, currentPageKind(), location.href),
   });
 
   const queue = createAiQueue({
