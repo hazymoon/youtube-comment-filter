@@ -100,15 +100,18 @@ function compileUsers(entries, label, warnings) {
  * @property {(text: string) => ({ word: string }|null)} matchWord 本文が NG ワードを含むか
  * @property {(reply: { text: string, leadingMentionHref?: string|null }) => boolean} matchMention
  *   返信の本文が NG ユーザ宛ての @メンションで始まるか
+ * @property {(hrefs: string[]) => ({ host: string }|null)} matchLink
+ *   本文のリンクに、許可したドメイン以外へのものがあるか（最初のもののホスト名を返す）。allowLinkDomains が無ければ常に null
  */
 
 /**
  * 設定の NG ユーザ・NG ワード・許可ユーザを照合器にする。
  * 不正な要素は例外にせず捨て、理由を warnings に入れる（設定の 1 か所の誤りでスクリプト全体を止めないため）。
- * @param {{ ngUsers?: unknown[], ngWords?: unknown[], allowUsers?: unknown[] }} config NG_USERS・NG_WORDS・ALLOW_USERS
+ * @param {{ ngUsers?: unknown[], ngWords?: unknown[], allowUsers?: unknown[], allowLinkDomains?: string[]|null }} config
+ *   NG_USERS・NG_WORDS・ALLOW_USERS と、「値」の allowLinkDomains（settings.js の parseStoredLinkDomains の結果。null なら無効）
  * @returns {CompiledRules}
  */
-export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [] } = {}) {
+export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [], allowLinkDomains = null } = {}) {
   /** @type {string[]} */
   const warnings = [];
   const { handles, channelIds } = compileUsers(ngUsers, 'NG_USERS', warnings);
@@ -199,6 +202,15 @@ export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [] } = {
       const textMatch = LEADING_MENTION_TEXT_PATTERN.exec(toNfkc(reply.text).trimStart());
       return textMatch !== null && isNgHandle(textMatch[1]);
     },
+
+    matchLink(hrefs) {
+      if (!Array.isArray(allowLinkDomains)) return null;
+      for (const href of hrefs) {
+        const host = linkTargetHost(href);
+        if (host !== null && !isAllowedLinkHost(host, allowLinkDomains)) return { host };
+      }
+      return null;
+    },
   };
 }
 
@@ -208,15 +220,17 @@ export function compileRules({ ngUsers = [], ngWords = [], allowUsers = [] } = {
  * @property {string} text 本文
  * @property {boolean} [isReply] 返信か
  * @property {string|null} [leadingMentionHref] 本文の先頭にあるリンクの href
+ * @property {string[]} [linkHrefs] 本文の中のリンクの href（dom.js の extractLinkHrefs）
  */
 
 /**
  * コメントをルールで判定する。
- * 優先順位は、投稿者が NG ユーザ → 返信の宛先が NG ユーザ（返信のときだけ）→ NG ワード。
+ * 優先順位は、投稿者が NG ユーザ → 返信の宛先が NG ユーザ（返信のときだけ）→ NG ワード → 許可外のドメインへのリンク。
  * @param {RuleComment} comment コメント
  * @param {CompiledRules} rules compileRules の結果
  * @returns {{ reason: 'ngUser'|'ngWord'|null, detail?: string }}
- *   detail は ngUser なら 'handle' | 'channelId' | 'mention'、ngWord なら一致した設定値
+ *   detail は ngUser なら 'handle' | 'channelId' | 'mention'、ngWord なら一致した設定値か 'link:<ホスト名>'。
+ *   許可外のリンクは件数バーで NG ワードに数える（利用者が書いた許可リストによる判定のため）
  */
 export function judgeByRules(comment, rules) {
   const userMatch = rules.matchUser(comment.author);
@@ -226,6 +240,8 @@ export function judgeByRules(comment, rules) {
   }
   const wordMatch = rules.matchWord(comment.text);
   if (wordMatch) return { reason: 'ngWord', detail: wordMatch.word };
+  const linkMatch = Array.isArray(comment.linkHrefs) ? rules.matchLink(comment.linkHrefs) : null;
+  if (linkMatch) return { reason: 'ngWord', detail: `link:${linkMatch.host}` };
   return { reason: null };
 }
 
@@ -250,4 +266,74 @@ export function judgeExemption(comment, rules, options) {
   if (options.verified && comment.author.isVerified) return 'verified';
   if (rules.matchAllowedUser(comment.author)) return 'allowUser';
   return null;
+}
+
+/** 常に許可するドメイン（サブドメインを含む）。YouTube 内のリンクは @メンション・時刻リンクなどで、隠す対象ではない */
+const ALWAYS_ALLOWED_LINK_DOMAINS = ['youtube.com', 'youtu.be'];
+
+/**
+ * YouTube の /redirect を剥がす回数の上限。/redirect の飛び先にさらに /redirect を書いて、外側だけを見る判定を
+ * すり抜けられないように剥がすが、際限なく続けないようにする
+ */
+const MAX_REDIRECT_UNWRAP = 5;
+
+/**
+ * ホスト名を照合用の形にする（小文字・末尾のドットを除く）。URL の hostname は小文字・punycode になっている。
+ * @param {string} host ホスト名
+ * @returns {string}
+ */
+function normalizeLinkHost(host) {
+  return host.toLowerCase().replace(/\.$/, '');
+}
+
+/**
+ * ホスト名がドメインそのものか、そのサブドメインか。
+ * @param {string} host 照合用の形のホスト名
+ * @param {string} domain 照合用の形のドメイン
+ * @returns {boolean}
+ */
+function isHostInDomain(host, domain) {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+/**
+ * 本文のリンクの飛び先のホスト名を求める。YouTube の外部リンクは /redirect?…&q=<URL> になっているので、q の URL を見る
+ * （docs/dom-structure.md「本文のリンク」）。相対パスは YouTube 内なので www.youtube.com になる。
+ * 壊れた URL・q の無い /redirect・ホスト名の無いリンク（mailto: など）は判定しないので null を返す。
+ * @param {unknown} href リンクの href
+ * @returns {string|null} 照合用の形のホスト名
+ */
+function linkTargetHost(href) {
+  if (typeof href !== 'string' || href === '') return null;
+  let url;
+  try {
+    url = new URL(href, 'https://www.youtube.com');
+  } catch {
+    return null;
+  }
+  for (let i = 0; i < MAX_REDIRECT_UNWRAP; i += 1) {
+    const host = normalizeLinkHost(url.hostname);
+    if (url.pathname !== '/redirect' || !isHostInDomain(host, 'youtube.com')) return host === '' ? null : host;
+    const target = url.searchParams.get('q');
+    if (!target) return null;
+    try {
+      // q は絶対 URL。相対として解釈すると YouTube 内に化けて許可されるので、基準の URL を渡さない
+      url = new URL(target);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * ホスト名が、常に許可するドメインか許可リストのドメイン（サブドメインを含む）に入るか。
+ * @param {string} host 照合用の形のホスト名
+ * @param {string[]} allowLinkDomains 許可リスト
+ * @returns {boolean}
+ */
+function isAllowedLinkHost(host, allowLinkDomains) {
+  return [...ALWAYS_ALLOWED_LINK_DOMAINS, ...allowLinkDomains].some((domain) =>
+    isHostInDomain(host, normalizeLinkHost(domain)),
+  );
 }
