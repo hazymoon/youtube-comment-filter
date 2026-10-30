@@ -3,7 +3,8 @@
  *
  * document 全体には触れず、渡された要素とその子孫・祖先だけを読む（テストで偽の要素を渡せるようにするため）。
  * 使う要素の機能は children / id / tagName / getAttribute / querySelector / textContent / parentElement と、
- * page 世界で読める data / polymerController に限る。
+ * page 世界で読める data / polymerController に限る。本文の中のリンクを全部読むとき（extractLinkHrefs）だけ
+ * querySelectorAll も使い、持たない要素ではリンクが無いものとして扱う。
  */
 
 import { hashString } from './hash.js';
@@ -320,4 +321,26 @@ export function extractComment(threadEl) {
     isPinned: !isReply && readIsPinned(viewModel),
     leadingMentionHref: readLeadingMentionHref(contentEl, rawText),
   };
+}
+
+/**
+ * thread 自身の本文の中のリンクの href を文書順に返す（許可したドメイン以外へのリンクの判定に使う。rules.js の matchLink）。
+ * 本文の要素は extractComment と同じ順で探す。外部へのリンクの href は /redirect?…&q=<URL> の相対パスで、
+ * @メンションや時刻リンクも同じ a.ytAttributedStringLink で現れる（docs/dom-structure.md「本文のリンク」）。
+ * extractComment の戻り値に足さないのは、その形を比べている既存のテストと、判定を保存する本文のハッシュに影響させないため。
+ * @param {any} threadEl ytd-comment-thread-renderer
+ * @returns {string[]} 空でない href。本体・本文の要素が無ければ空の配列
+ */
+export function extractLinkHrefs(threadEl) {
+  const viewModel = findOwnViewModel(threadEl);
+  const contentEl =
+    viewModel?.querySelector?.(CONTENT_TEXT_SELECTOR) ?? viewModel?.querySelector?.(CONTENT_TEXT_FALLBACK_SELECTOR);
+  if (typeof contentEl?.querySelectorAll !== 'function') return [];
+  /** @type {string[]} */
+  const hrefs = [];
+  for (const link of Array.from(contentEl.querySelectorAll(CONTENT_LINK_SELECTOR))) {
+    const href = nonEmptyString(/** @type {any} */ (link)?.getAttribute?.('href'));
+    if (href !== null) hrefs.push(href);
+  }
+  return hrefs;
 }
