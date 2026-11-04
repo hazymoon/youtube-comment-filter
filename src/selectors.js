@@ -197,3 +197,12 @@ export const SHORTS_OWNER_HANDLE_SELECTOR = 'yt-reel-channel-bar-view-model a[hr
  */
 export const SHORTS_OWNER_NAME_SELECTOR =
   'ytd-video-description-header-renderer #channel-name yt-formatted-string#text';
+
+/** 動画ページのタイトル。WATCH_FLEXY_TAG の中で探す。確認済み（docs/dom-structure.md「動画のタイトル」） */
+export const WATCH_TITLE_SELECTOR = 'ytd-watch-metadata #title h1';
+
+/**
+ * Shorts のプレイヤーのタイトルのリンク（href が https://www.youtube.com/shorts/<id>）。SHORTS_TAG の中で探す。
+ * 確認済み（同上）。href の動画 ID で、いまの動画のタイトルかを確かめられる
+ */
+export const SHORTS_TITLE_LINK_SELECTOR = 'a.ytp-title-link';

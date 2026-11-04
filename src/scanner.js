@@ -103,15 +103,15 @@ function threadOfTarget(target) {
 
 /**
  * @typedef {object} ThreadProcessor
- * @property {(threads: Iterable<Element>) => { id: string, text: string }[]} processThreads
+ * @property {(threads: Iterable<Element>) => import('./ai.js').AiItem[]} processThreads
  *   thread を文書順に判定して表示状態を反映し、AI の順番待ちに入れるコメントを返す。
  *   隠したスレッドの中は飛ばし、ID と本文が前回と同じで表示か非表示に確定済みのものも飛ばす。
  *   ID か本文が変わっていたら（Polymer の要素の再利用）全文表示の固定を外して判定し直す。
  *   判定から外すかどうかの結果（judgeExemption）だけが変わったら、全文表示の固定は保ったまま判定し直す。
  *   返す順は文書順で、前に AI の判定が得られなかったコメントは新しいコメントの後に回す
- * @property {(threads: Iterable<Element>, id: string, verdict: { hide: boolean, category: string|null }, item: { id: string, text: string }) => { needsRescan: boolean }} applyVerdict
+ * @property {(threads: Iterable<Element>, id: string, verdict: { hide: boolean, category: string|null }, item: import('./ai.js').AiItem) => { needsRescan: boolean }} applyVerdict
  *   AI の判定を、判定したコメントと一致する thread に反映する
- * @property {(threads: Iterable<Element>, id: string, item: { id: string, text: string }) => { needsRescan: boolean }} applyPending
+ * @property {(threads: Iterable<Element>, id: string, item: import('./ai.js').AiItem) => { needsRescan: boolean }} applyPending
  *   AI の判定が得られなかったことを、判定したコメントと一致する thread に反映する
  * @property {(threads: Iterable<Element>) => import('./decide.js').StateCounts & { total: number }} countThreads
  *   件数バーの件数を集計する。total は集計したコメントの数（隠したスレッドの中の返信は数えない）
@@ -141,6 +141,9 @@ function threadOfTarget(target) {
  *   AI の判定はスキャンの外で反映されるため、スキャンで付けるもの（NG 登録のボタン）をここで付ける
  * @param {() => (import('./rules.js').VideoOwner|null)} [options.getVideoOwner] いまの動画の投稿者（なりすましの判定に使う）。
  *   スキャンのたびに読み直す。読めないときは null を返し、なりすましの判定をしない
+ * @param {() => (string|null)} [options.getVideoTitle] いまの動画のタイトル（AI の判定の手がかりに使う）。
+ *   スキャンのたびに読み、順番待ちに入れるコメントに title として付ける。読めないときは null を返し、
+ *   タイトル無しで判定する（その結果はキャッシュに書かない）。渡さないときは title を付けない
  * @returns {ThreadProcessor}
  */
 export function createThreadProcessor({
@@ -151,6 +154,7 @@ export function createThreadProcessor({
   debugLog = () => {},
   onShown = () => {},
   getVideoOwner = () => null,
+  getVideoTitle,
 }) {
   let currentRules = rules;
   /**
@@ -174,6 +178,30 @@ export function createThreadProcessor({
     debugLog('動画の投稿者', next?.handle ?? null, next?.displayName ?? null);
     videoOwner = next;
     rulesVersion += 1;
+  }
+
+  /** @type {string|null|undefined} 前のスキャンで読んだ動画のタイトル。判定の経過に出すかどうかの比較に使う */
+  let lastTitle;
+
+  /**
+   * スキャンした時点の動画のタイトルを読む。getVideoTitle を渡していなければ undefined。
+   * AI を使わない状態では、順番待ちに入れるものが無いので読まない。読み取りが例外を投げたら、スキャン全体を
+   * 止めないようタイトル無し（null）にする。タイトルが読めないと AI の判定がキャッシュに書かれないので、
+   * セレクタが壊れたときに気づけるよう、読んだ値が変わったら判定の経過に出す
+   * @param {import('./decide.js').AiMode} aiMode AI 判定の状態
+   * @returns {string|null|undefined}
+   */
+  function readTitle(aiMode) {
+    if (!getVideoTitle || aiMode === 'disabled' || aiMode === 'failed') return undefined;
+    let title = null;
+    try {
+      title = getVideoTitle() ?? null;
+    } catch (error) {
+      debugLog('動画のタイトルの読み取りの例外', error);
+    }
+    if (title !== lastTitle) debugLog('動画のタイトル', title);
+    lastTitle = title;
+    return title;
   }
 
   /**
@@ -226,10 +254,11 @@ export function createThreadProcessor({
    * 1 つの thread を判定して表示状態を反映する。順番待ちに入れるものは fresh か retries に積む。
    * @param {Element} thread ytd-comment-thread-renderer
    * @param {import('./decide.js').AiMode} aiMode AI 判定の状態
-   * @param {{ id: string, text: string }[]} fresh 新しく判定するもの
-   * @param {{ id: string, text: string }[]} retries 前に AI の判定が得られなかったもの
+   * @param {import('./ai.js').AiItem[]} fresh 新しく判定するもの
+   * @param {import('./ai.js').AiItem[]} retries 前に AI の判定が得られなかったもの
+   * @param {string|null|undefined} title スキャンした時点の動画のタイトル。getVideoTitle を渡していなければ undefined
    */
-  function processOne(thread, aiMode, fresh, retries) {
+  function processOne(thread, aiMode, fresh, retries, title) {
     if (isInsideHiddenThread(thread)) return;
     const extracted = extractComment(thread);
     if ('unreadable' in extracted) {
@@ -304,7 +333,11 @@ export function createThreadProcessor({
     }
     if (decision.state === 'hidden' && decision.reason === 'ai') logAiHidden(cached?.category ?? null, extracted.text);
     if (decision.enqueue) {
-      (aiUnresolved ? retries : fresh).push({ id: extracted.id, text: extracted.text });
+      /** @type {import('./ai.js').AiItem} */
+      const item = { id: extracted.id, text: extracted.text };
+      // 順番待ちの処理時ではなくスキャンの時点で付ける。処理時に読むと、遷移の後の別の動画のタイトルが付きうる
+      if (title !== undefined) item.title = title;
+      (aiUnresolved ? retries : fresh).push(item);
     }
   }
 
@@ -312,14 +345,15 @@ export function createThreadProcessor({
     processThreads(threads) {
       const aiMode = getAiMode();
       refreshVideoOwner();
-      /** @type {{ id: string, text: string }[]} */
+      const title = readTitle(aiMode);
+      /** @type {import('./ai.js').AiItem[]} */
       const fresh = [];
-      /** @type {{ id: string, text: string }[]} */
+      /** @type {import('./ai.js').AiItem[]} */
       const retries = [];
 
       for (const thread of threads) {
         try {
-          processOne(thread, aiMode, fresh, retries);
+          processOne(thread, aiMode, fresh, retries, title);
         } catch (error) {
           // 1 件の失敗で残りの thread が判定前のまま残らないよう、その thread だけ判定待ちにして続ける
           debugLog('判定中の例外', error);
@@ -353,7 +387,9 @@ export function createThreadProcessor({
       }
       // 本文が変わったコメントの判定は保存しない（ID ごとの保存枠を古い本文の判定で埋めないため）。
       // 該当する thread が DOM に無いときは保存する（本文のハッシュと組で保存するので取り違えない）
-      if (!textChanged) cache.set(id, judgedHash, verdict);
+      // タイトルが読めずに判定した結果も保存しない。タイトル無しの判定で保存枠を埋めると、リロードの後も
+      // タイトル付きで判定し直されない
+      if (!textChanged && item.title !== null) cache.set(id, judgedHash, verdict);
       return { needsRescan };
     },
 
