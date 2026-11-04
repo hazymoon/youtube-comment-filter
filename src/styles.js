@@ -8,6 +8,7 @@ import {
   BLOCK_BUTTON_CLASS,
   COMMENT_CONTAINER_ID,
   EXPANDED_ATTR,
+  HELD_ATTR,
   EXPANDER_CONTENT_ID,
   EXPANDER_SELECTOR,
   LESS_BUTTON_SELECTOR,
@@ -33,6 +34,12 @@ const HOVER_LINES = 4;
 
 /** 表示するコメントの本文の行の高さ（rem）。ホバーで行ごとに見せるマスクの帯の高さと揃えるため、明示する */
 const LINE_HEIGHT_REM = 2;
+
+/**
+ * マウスやフォーカスが離れた後、見せた量を保つ時間（秒）。見せる量を戻す transition の待ち時間に使う。
+ * ふつうに見ている間には戻らない長さにする
+ */
+const HOLD_DELAY_S = 86400;
 
 /**
  * 件数バーの色。YouTube の色変数を参照し、変数が無いときはライト・ダークそれぞれの既定値に落とす。
@@ -203,6 +210,10 @@ export function buildStyles({
   const shownContent = forEachScope((thread) => [
     contentOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`),
   ]);
+  // 一度マウスが乗った・フォーカスが入ったコメント（HELD_ATTR、main.js が付ける）の本文
+  const heldContent = forEachScope((thread) => [
+    contentOf(`${thread}[${STATE_ATTR}="shown"][${HELD_ATTR}] > #${COMMENT_CONTAINER_ID}`),
+  ]);
   const hoverContent = forEachScope((thread) => [
     hoverOf(`${thread}[${STATE_ATTR}="shown"] > #${COMMENT_CONTAINER_ID}`),
   ]);
@@ -370,7 +381,8 @@ html[dark] .${REASON_STRIP_CLASS} {
    マスクはクリックの対象を減らさないので、clip-path で描画とクリックの対象も見せた範囲に絞る。
    行の高さはマスクの帯の高さと揃える。
    キーボードで本文の枠にフォーカスしたときもホバーと同じ量を見せ、Enter・Space で全文に切り替える（main.js）。
-   見せる量の transition はホバー・フォーカスの規則にだけ書く（マウスやフォーカスが外れたら待たずに文頭だけに戻すため） */
+   見せる量の transition は既定の表示には書かない（一度もマウスやフォーカスが入っていないコメントと、別のコメントに
+   入れ替わったものは、待たずに文頭だけに戻すため）。離れた後に見せた量を保つのは保持の規則が受け持つ */
 ${shownContent} {
   display: -webkit-box !important;
   -webkit-box-orient: vertical !important;
@@ -389,6 +401,16 @@ ${shownContent} {
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
   clip-path: ${previewClip};
+}
+/* 保持: マウスやフォーカスが離れても、それまでに見せた量を保つ。見せる量を 0 に戻す transition を、時間 0 と
+   長い待ち時間で書き、待ち時間の間は離れた時点の値のまま止める。見せる量そのものは書かない（書くとその値に変わる）。
+   clip-path はホバーと同じく見せる量に連動させ、保った範囲を描画とクリックの対象に残す。
+   ホバー・フォーカス・全文固定の規則に上書きされるよう、それらより前に置く（フォーカス・全文固定とは詳細度が同じ）。
+   印が外れる（別のコメントに入れ替わる）か表示中でなくなると、この規則が外れ、既定の表示には transition が無いので
+   すぐ文頭だけに戻る */
+${heldContent} {
+  transition: --ycf-reveal 0s linear ${HOLD_DELAY_S}s;
+  clip-path: ${revealClip};
 }
 /* ホバー: 待ち時間の後、1 行ずつ左から右へ見せる。行数・幅・マスクは既定の表示と同じにし、見せる量だけを増やす。
    clip-path は見せる量に連動させ、まだ見せていない行をクリックの対象から外す */

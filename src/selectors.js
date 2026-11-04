@@ -164,6 +164,13 @@ export const EXEMPTION_ATTR = 'data-ycf-exemption';
 /** thread に付ける。付いている間は本文を全文表示に固定する */
 export const EXPANDED_ATTR = 'data-ycf-expanded';
 
+/**
+ * thread に付ける。マウスが乗った・本文の枠にフォーカスが入った表示中のコメントに付け、
+ * 付いている間はマウスやフォーカスが離れても、それまでに見せた量を保つ（styles.js）。
+ * 別のコメントに入れ替わったら外し、前のコメントで見せた量を引き継がない
+ */
+export const HELD_ATTR = 'data-ycf-held';
+
 /** コメントに差し込む NG 登録のボタンの class */
 export const BLOCK_BUTTON_CLASS = 'ycf-block';
 
