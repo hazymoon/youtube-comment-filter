@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/hazymoon/youtube-comment-filter/compare/v0.6.0...v0.7.0) (2026-11-04)
+
+
+### Features
+
+* マウスを離しても、それまでに見せたコメントの本文を表示したままにする ([#47](https://github.com/hazymoon/youtube-comment-filter/issues/47)) ([2319c55](https://github.com/hazymoon/youtube-comment-filter/commit/2319c55144e599a18512fe8be0cf88c130c1bb64))
+* 事故や災害の動画で、被害を茶化す・冷笑するコメントを AI が動画のタイトルを手がかりに隠す ([#48](https://github.com/hazymoon/youtube-comment-filter/issues/48)) ([7e5960a](https://github.com/hazymoon/youtube-comment-filter/commit/7e5960a8065cf3adc989be7d966c5369d707396c))
+
 ## [0.6.0](https://github.com/hazymoon/youtube-comment-filter/compare/v0.5.2...v0.6.0) (2026-10-30)
 
 
