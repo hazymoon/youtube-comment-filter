@@ -4,7 +4,7 @@
 
 import { cacheVersion } from './ai.js';
 import { createAiCache } from './cache.js';
-import { ALLOW_USERS, NG_USERS, NG_WORDS } from './config.js';
+import { AI_TITLE_MAX_CHARS, ALLOW_USERS, NG_USERS, NG_WORDS } from './config.js';
 import { buildCountText, buildReasonText, buildStatusText } from './decide.js';
 import { directChildById, extractComment, findOwnExpanderContent, findOwnViewModel } from './dom.js';
 import { restoreFocusAfterHide } from './focus.js';
@@ -24,6 +24,7 @@ import {
 import { createAiQueue } from './queue.js';
 import { compileRules } from './rules.js';
 import { createThreadProcessor } from './scanner.js';
+import { readVideoTitle } from './title.js';
 import {
   COMMENT_CONTAINER_ID,
   COMMENTS_SELECTOR,
@@ -231,6 +232,8 @@ export function main() {
       scannedVideoOwner = options.detectImpersonation ? readVideoOwner(doc, currentPageKind(), location.href) : null;
       return scannedVideoOwner;
     },
+    // AI の判定の手がかり。読めないときは null（タイトル無しで判定する）
+    getVideoTitle: () => readVideoTitle(doc, currentPageKind(), location.href, AI_TITLE_MAX_CHARS),
   });
 
   const queue = createAiQueue({

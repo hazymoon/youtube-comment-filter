@@ -12,7 +12,7 @@ import { buildBatchInput, buildResponseSchema, parseBatchResponse } from './ai.j
 
 /**
  * @typedef {object} AiQueue
- * @property {(items: { id: string, text: string }[]) => void} enqueue 判定するコメントを末尾に加える
+ * @property {(items: import('./ai.js').AiItem[]) => void} enqueue 判定するコメントを末尾に加える
  * @property {() => void} reset 実行中の判定を中断し、待ち行列と再試行回数を消す（動画の遷移時に使う）
  * @property {() => number} size 待ち行列と処理中の件数の合計
  */
@@ -87,9 +87,9 @@ function destroySession(session) {
  * @param {number} options.timeoutMs 1 バッチの時間の上限（ミリ秒）
  * @param {number} options.maxChars 1 コメントの本文の最大文字数
  * @param {{ name: string, description: string }[]} options.categories AI_CATEGORIES
- * @param {(id: string, verdict: { hide: boolean, category: string|null }, item: { id: string, text: string }) => void} options.onVerdict
+ * @param {(id: string, verdict: { hide: boolean, category: string|null }, item: import('./ai.js').AiItem) => void} options.onVerdict
  *   判定が出た
- * @param {(id: string, item: { id: string, text: string }) => void} options.onPending 判定が得られなかった（判定待ち）
+ * @param {(id: string, item: import('./ai.js').AiItem) => void} options.onPending 判定が得られなかった（判定待ち）
  * @param {(error: unknown) => void} options.onFatal AI が使えなくなった
  * @param {() => void} [options.onSessionStale] 基底セッションが使えなくなったとみなした
  * @param {(ms: number) => AbortSignal} [options.createTimeoutSignal] タイムアウト用シグナルの生成（テストで差し替える）
@@ -115,7 +115,7 @@ export function createAiQueue({
   const responseSchema = buildResponseSchema(categories);
   const categoryNames = categories.map((category) => category.name);
 
-  /** @type {{ id: string, text: string }[]} */
+  /** @type {import('./ai.js').AiItem[]} */
   let waiting = [];
   /** @type {Set<string>} */
   const waitingIds = new Set();
@@ -185,7 +185,7 @@ export function createAiQueue({
 
   /**
    * タイムアウトしたコメントを判定待ちにし、まだなら 1 回だけ末尾に入れ直す。
-   * @param {{ id: string, text: string }[]} batch バッチ
+   * @param {import('./ai.js').AiItem[]} batch バッチ
    * @param {number} batchGeneration 取り出した時点の世代
    */
   function handleTimeout(batch, batchGeneration) {
@@ -219,7 +219,7 @@ export function createAiQueue({
 
   /**
    * 1 バッチを判定し、結果を流す。
-   * @param {{ id: string, text: string }[]} batch バッチ
+   * @param {import('./ai.js').AiItem[]} batch バッチ
    * @param {number} batchGeneration 取り出した時点の世代
    * @param {boolean} isMissingRetry 欠落分の 1 件ずつの再判定か
    * @returns {Promise<void>}
@@ -254,11 +254,11 @@ export function createAiQueue({
     if (!isCurrent(batchGeneration)) return;
 
     const { verdicts, missing } = parseBatchResponse(responseText, idMap, categoryNames);
-    /** @type {{ id: string, text: string }[]} */
+    /** @type {import('./ai.js').AiItem[]} */
     const toConfirm = [];
     for (const [id, verdict] of verdicts) {
       if (!isCurrent(batchGeneration)) return;
-      const item = /** @type {{ id: string, text: string }} */ (itemsById.get(id));
+      const item = /** @type {import('./ai.js').AiItem} */ (itemsById.get(id));
       // 本文に埋めた指示で同じバッチの他のコメントを隠させられるため、まとめた判定の hide:true は
       // そのまま流さず、1 件だけのバッチで判定し直す。hide:false は判定し直さずに流すので、
       // 同じバッチの他のコメントの指示で表示にされる経路は残る（防げるのは AI_BATCH_SIZE が 1 のときだけ）
@@ -275,7 +275,7 @@ export function createAiQueue({
 
     for (const id of missing) {
       if (!isCurrent(batchGeneration)) return;
-      const item = /** @type {{ id: string, text: string }} */ (itemsById.get(id));
+      const item = /** @type {import('./ai.js').AiItem} */ (itemsById.get(id));
       if (isMissingRetry || missingRetried.has(id)) {
         inFlightIds.delete(id);
         onPending(id, item);
@@ -294,13 +294,13 @@ export function createAiQueue({
 
   /**
    * 待ち行列の先頭から 1 バッチ分を取り出す。判定の要らなくなったコメントは捨てて詰める。
-   * @returns {{ id: string, text: string }[]}
+   * @returns {import('./ai.js').AiItem[]}
    */
   function takeBatch() {
-    /** @type {{ id: string, text: string }[]} */
+    /** @type {import('./ai.js').AiItem[]} */
     const batch = [];
     while (batch.length < effectiveBatchSize && waiting.length > 0) {
-      const item = /** @type {{ id: string, text: string }} */ (waiting.shift());
+      const item = /** @type {import('./ai.js').AiItem} */ (waiting.shift());
       waitingIds.delete(item.id);
       if (isWanted(item.id)) batch.push(item);
     }
@@ -335,8 +335,20 @@ export function createAiQueue({
     enqueue(items) {
       if (fatal) return;
       for (const item of items) {
-        if (waitingIds.has(item.id) || inFlightIds.has(item.id)) continue;
-        waiting.push({ id: item.id, text: item.text });
+        if (waitingIds.has(item.id)) {
+          // タイトル無しで待っているものは、後のスキャンで読めたタイトルを付ける。動画の切り替わりの直後は
+          // タイトルが読めないことがあり、そのまま判定するとタイトルの手がかりが最初に見えるコメントほど欠ける
+          const waitingItem = waiting.find((queuedItem) => queuedItem.id === item.id);
+          if (waitingItem && waitingItem.title === null && typeof item.title === 'string')
+            waitingItem.title = item.title;
+          continue;
+        }
+        if (inFlightIds.has(item.id)) continue;
+        /** @type {import('./ai.js').AiItem} */
+        const queued = { id: item.id, text: item.text };
+        // タイトルが読めなかった印の null も運ぶ。落とすと、タイトル無しの判定がキャッシュに書かれる（scanner.js の applyVerdict）
+        if (item.title !== undefined) queued.title = item.title;
+        waiting.push(queued);
         waitingIds.add(item.id);
       }
       if (!running && waiting.length > 0) void run();

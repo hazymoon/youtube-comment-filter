@@ -51,6 +51,7 @@ export const MODULE_ORDER = [
   'scanner.js',
   'navigation.js',
   'owner.js',
+  'title.js',
   'settings.js',
   'main.js',
 ];
