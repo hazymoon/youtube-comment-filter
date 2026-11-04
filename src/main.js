@@ -30,6 +30,7 @@ import {
   EXPANDED_ATTR,
   EXPANDER_CONTENT_ID,
   EXPANDER_SELECTOR,
+  HELD_ATTR,
   ID_ATTR,
   INTERACTIVE_SELECTOR,
   NAVIGATE_FINISH_EVENT,
@@ -561,10 +562,10 @@ export function main() {
   }
 
   /**
-   * 段階表示を切り替える thread を返す。返信の本文の操作で親を切り替えないよう、ytd-expander#expander が
+   * 段階表示を切り替える・保持する thread を返す。返信の本文の操作で親を切り替えないよう、要素が
    * いちばん内側の thread の直下の #comment-container の中にあり、その thread が監視中のコメント欄の
    * 表示中のコメントのときだけ返す。
-   * @param {any} expander ytd-expander#expander
+   * @param {any} expander ytd-expander#expander（保持の印では、マウスが乗った・フォーカスが入った要素）
    * @returns {Element|null}
    */
   function toggleTargetOf(expander) {
@@ -634,7 +635,22 @@ export function main() {
     toggleExpanded(thread);
   }
 
+  /**
+   * 段階表示の保持の印を付ける。マウスが乗った、またはフォーカスが入った表示中のコメントに付ける。
+   * 離れた時点で付けると、ホバーが外れて見せる量が文頭に戻るのと印が付くのとの順序が定まらないので、入った時点で付ける。
+   * pointerover・focusin は泡立つので document で受け、返信に入ったときは返信の thread だけに付ける（toggleTargetOf）
+   * @param {Event} event pointerover / focusin
+   */
+  function onDocumentEnter(event) {
+    const target = /** @type {any} */ (event.target);
+    if (!target || typeof target.closest !== 'function') return;
+    const thread = toggleTargetOf(target);
+    if (thread && !thread.hasAttribute(HELD_ATTR)) thread.setAttribute(HELD_ATTR, '');
+  }
+
   doc.addEventListener('click', onDocumentClick);
+  doc.addEventListener('pointerover', onDocumentEnter);
+  doc.addEventListener('focusin', onDocumentEnter);
   doc.addEventListener('keydown', onDocumentKeydown, true);
 
   doc.addEventListener(NAVIGATE_START_EVENT, () => {

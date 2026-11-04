@@ -4,7 +4,8 @@ import { REVEAL_DELAY_MS, REVEAL_MS_PER_LINE } from '../src/config.js';
 import { buildStyles } from '../src/styles.js';
 
 // ホバーで全文が一度に見えないよう、少し待ってから 1 行ずつ左から右へ見せていく。
-// 読む順に見えるので、不快だと判断した時点でマウスを外せば残りは見えない。外したらすぐ文頭だけに戻す。
+// 読む順に見えるので、不快だと判断した時点でマウスを外せば残りは見えない。
+// 一度もマウスを乗せていないコメントは文頭だけのまま（外した後に見せた量を保つのは styles-hold.test.js）。
 
 const css = buildStyles();
 const SHOWN = 'ytd-watch-flexy ytd-comments#comments ytd-comment-thread-renderer[data-ycf-state="shown"]';

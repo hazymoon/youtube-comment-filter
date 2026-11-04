@@ -12,6 +12,7 @@ import {
   EXEMPTION_ATTR,
   EXPANDED_ATTR,
   HASH_ATTR,
+  HELD_ATTR,
   ID_ATTR,
   REASON_ATTR,
   REVEALED_ATTR,
@@ -239,6 +240,7 @@ export function createThreadProcessor({
         thread.removeAttribute(EXEMPTION_ATTR);
         thread.removeAttribute(EXPANDED_ATTR);
         thread.removeAttribute(REVEALED_ATTR);
+        thread.removeAttribute(HELD_ATTR);
       }
       if (thread.getAttribute(REASON_ATTR) !== 'unreadable') debugLog('読めないコメント', extracted.unreadable);
       applyState(thread, 'pending', 'unreadable');
@@ -262,6 +264,7 @@ export function createThreadProcessor({
       thread.removeAttribute(EXPANDED_ATTR);
       // 一時表示は押したコメントに限る。要素が別のコメントに使い回されたら、判定前の本文を見せないよう外す
       thread.removeAttribute(REVEALED_ATTR);
+      thread.removeAttribute(HELD_ATTR);
       // 投稿者を読めないと NG ユーザが効かない（表示のまま通る）。工程 3 で取得元の変化に気づけるよう記録する
       if (extracted.author.handle === null && extracted.author.channelId === null) {
         debugLog('投稿者を読めないコメント', extracted.id);
@@ -446,6 +449,7 @@ export function createThreadProcessor({
         thread.removeAttribute(EXPANDED_ATTR);
         thread.removeAttribute(REVEALED_ATTR);
         hiddenDetails.delete(thread);
+        thread.removeAttribute(HELD_ATTR);
         debugLog('表示中のコメントが変わったので判定前に戻す', thread.getAttribute(ID_ATTR) ?? '');
       }
     },
