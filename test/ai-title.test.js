@@ -57,3 +57,16 @@ test('「不謹慎・冷笑」の対話例は入れず、カテゴリの説明�
   );
   assert.doesNotMatch(AI_CATEGORIES.find((c) => c.name === CATEGORY).description, /良かった/);
 });
+
+test('「不謹慎・冷笑」は被害を悲しむ・同情するコメントを含まないと説明する', () => {
+  // 実際の事故のニュースで、被害者に同情するコメントの多くを隠した（docs/spike.md「動画のタイトルと不謹慎・冷笑」）
+  const { description } = AI_CATEGORIES.find((c) => c.name === CATEGORY);
+  assert.match(description, /同情/);
+  assert.match(description, /当てはまらない/);
+});
+
+test('system プロンプトで、事故や災害の動画のコメントを不謹慎へ寄せる一文を書かない', () => {
+  // 事故の動画のコメント全体を隠す方向に寄せた（同上）
+  const [system] = buildInitialPrompts(AI_CATEGORIES);
+  assert.doesNotMatch(system.content, /不謹慎になりえます/);
+});
